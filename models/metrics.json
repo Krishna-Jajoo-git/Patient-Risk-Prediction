@@ -1,0 +1,71 @@
+{
+  "knn": {
+    "display_name": "K-Nearest Neighbours",
+    "best_params": {
+      "clf__weights": "uniform",
+      "clf__n_neighbors": 15,
+      "clf__metric": "euclidean"
+    },
+    "best_cv_score": 0.7684,
+    "test_metrics": {
+      "accuracy": 0.7083,
+      "precision": 0.7367,
+      "recall": 0.887,
+      "f1": 0.8049,
+      "roc_auc": 0.6924
+    }
+  },
+  "decision_tree": {
+    "display_name": "Decision Tree",
+    "best_params": {
+      "clf__min_samples_split": 10,
+      "clf__min_samples_leaf": 20,
+      "clf__max_depth": 5,
+      "clf__criterion": "entropy",
+      "clf__class_weight": null
+    },
+    "best_cv_score": 0.7795,
+    "test_metrics": {
+      "accuracy": 0.675,
+      "precision": 0.7477,
+      "recall": 0.7862,
+      "f1": 0.7665,
+      "roc_auc": 0.6878
+    }
+  },
+  "logistic_regression": {
+    "display_name": "Logistic Regression",
+    "best_params": {
+      "clf__solver": "lbfgs",
+      "clf__penalty": "l2",
+      "clf__class_weight": null,
+      "clf__C": 0.001
+    },
+    "best_cv_score": 0.7845,
+    "test_metrics": {
+      "accuracy": 0.7133,
+      "precision": 0.7364,
+      "recall": 0.8993,
+      "f1": 0.8097,
+      "roc_auc": 0.7447
+    }
+  },
+  "random_forest": {
+    "display_name": "Random Forest",
+    "best_params": {
+      "clf__n_estimators": 100,
+      "clf__min_samples_leaf": 3,
+      "clf__max_features": "log2",
+      "clf__max_depth": 8,
+      "clf__class_weight": null
+    },
+    "best_cv_score": 0.7806,
+    "test_metrics": {
+      "accuracy": 0.725,
+      "precision": 0.7597,
+      "recall": 0.8698,
+      "f1": 0.811,
+      "roc_auc": 0.7436
+    }
+  }
+}

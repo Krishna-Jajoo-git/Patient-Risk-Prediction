@@ -181,5 +181,3 @@ The self-contained notebook [`notebooks/Patient_Risk_Prediction_Colab.ipynb`](fi
 - **Clinical Validation:** The synthetic dataset simulates biological noise but lacks institutional multi-center validation.
 - **Explainability:** Future iterations will incorporate SHAP (SHapley Additive exPlanations) for local patient feature attributions.
 - **Multi-Modal Data:** Extending tabular EHR with clinical notes via natural language processing or ECG waveforms using 1D convolutional networks.
-#   P a t i e n t - R i s k - P r e d i c t i o n  
- 

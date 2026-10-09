@@ -1,0 +1,81 @@
+{
+  "initial_rows": 16472,
+  "initial_missing": {
+    "patient_id": 0,
+    "date": 0,
+    "age": 643,
+    "gender": 0,
+    "bmi": 682,
+    "systolic_bp": 702,
+    "glucose": 650,
+    "cholesterol": 660,
+    "medication_count": 700,
+    "outcome": 0
+  },
+  "duplicates_removed": 32,
+  "impossible_values_nulled": {
+    "age": 0,
+    "bmi": 33,
+    "systolic_bp": 46,
+    "glucose": 0,
+    "cholesterol": 0,
+    "medication_count": 0
+  },
+  "iqr_outliers": {
+    "age": {
+      "count": 0,
+      "bounds": [
+        -3.0,
+        109.0
+      ]
+    },
+    "bmi": {
+      "count": 0,
+      "bounds": [
+        6.9,
+        50.9
+      ]
+    },
+    "systolic_bp": {
+      "count": 0,
+      "bounds": [
+        51.0,
+        207.8
+      ]
+    },
+    "glucose": {
+      "count": 0,
+      "bounds": [
+        -0.15,
+        267.45
+      ]
+    },
+    "cholesterol": {
+      "count": 0,
+      "bounds": [
+        39.95,
+        358.75
+      ]
+    },
+    "medication_count": {
+      "count": 78,
+      "bounds": [
+        -2.0,
+        6.0
+      ]
+    }
+  },
+  "final_rows": 16440,
+  "final_missing": {
+    "patient_id": 0,
+    "date": 0,
+    "age": 640,
+    "gender": 0,
+    "bmi": 715,
+    "systolic_bp": 745,
+    "glucose": 649,
+    "cholesterol": 660,
+    "medication_count": 700,
+    "outcome": 0
+  }
+}
