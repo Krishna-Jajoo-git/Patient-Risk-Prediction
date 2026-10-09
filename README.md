@@ -25,15 +25,15 @@ Four distinct classical machine-learning algorithms are systematically trained, 
 
 ```mermaid
 flowchart TD
-    A[Raw Longitudinal Dataset] --> B[Schema Validation & Range Checks]
-    B --> C[Data Cleaning & Deduplication]
-    C --> D[Longitudinal Feature Aggregation]
-    D --> E[Patient-Level Train/Test Split (No Leakage)]
-    E --> F[ColumnTransformer: Imputation + Scaling/Encoding]
-    F --> G[5-Fold Stratified CV Grid Search]
-    G --> H[Model Benchmark on Test Set]
-    H --> I[Artifact Serialization (models/best_model.joblib)]
-    I --> J[Streamlit UI & Interactive Dashboard]
+    A["Raw Longitudinal Dataset"] --> B["Schema Validation & Range Checks"]
+    B --> C["Data Cleaning & Deduplication"]
+    C --> D["Longitudinal Feature Aggregation"]
+    D --> E["Patient-Level Train/Test Split (No Leakage)"]
+    E --> F["ColumnTransformer: Imputation + Scaling/Encoding"]
+    F --> G["5-Fold Stratified CV Grid Search"]
+    G --> H["Model Benchmark on Test Set"]
+    H --> I["Artifact Serialization: models/best_model.joblib"]
+    I --> J["Streamlit UI & Interactive Dashboard"]
 ```
 
 ---

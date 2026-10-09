@@ -4,31 +4,31 @@ This document outlines the end-to-end data processing, feature engineering, mode
 
 ```mermaid
 flowchart TD
-    A[Raw Dataset (CSV)] --> B[Schema Validation & Type Checking]
-    B --> C[Data Cleaning (Impossible Ranges -> NaN, Duplicates Dropped)]
-    C --> D[Longitudinal Feature Engineering (Per-Patient Trajectories)]
-    D --> E[Patient-Level Train/Test Split (GroupShuffleSplit)]
+    A["Raw Dataset (CSV)"] --> B["Schema Validation & Type Checking"]
+    B --> C["Data Cleaning (Impossible Ranges to NaN, Duplicates Dropped)"]
+    C --> D["Longitudinal Feature Engineering (Per-Patient Trajectories)"]
+    D --> E["Patient-Level Train/Test Split (GroupShuffleSplit)"]
     
-    subgraph Training Pipeline (Train Split Only)
-        E --> F[ColumnTransformer: Median Imputation + StandardScaler / OneHotEncoder]
-        F --> G[5-Fold Stratified Cross-Validation & Grid Search]
-        G --> H[Candidate Models: KNN | Decision Tree | Logistic Regression | Random Forest]
+    subgraph "Training Pipeline (Train Split Only)"
+        E --> F["ColumnTransformer: Median Imputation + StandardScaler / OneHotEncoder"]
+        F --> G["5-Fold Stratified Cross-Validation & Grid Search"]
+        G --> H["Candidate Models: KNN | Decision Tree | Logistic Regression | Random Forest"]
     end
     
-    subgraph Evaluation (Held-out Test Split)
-        H --> I[Benchmark Test Metrics: Accuracy, Precision, Recall, F1, ROC-AUC]
-        I --> J[Confusion Matrices, ROC Curves, Feature Importance Plots]
-        J --> K[Select Best Estimator by Primary Metric (F1-score)]
+    subgraph "Evaluation (Held-out Test Split)"
+        H --> I["Benchmark Test Metrics: Accuracy, Precision, Recall, F1, ROC-AUC"]
+        I --> J["Confusion Matrices, ROC Curves, Feature Importance Plots"]
+        J --> K["Select Best Estimator by Primary Metric (F1-score)"]
     end
     
-    subgraph Artifact Storage
-        K --> L[models/best_model.joblib (Full Fitted Pipeline)]
-        K --> M[models/metrics.json & model_metadata.json]
+    subgraph "Artifact Storage"
+        K --> L["models/best_model.joblib (Full Fitted Pipeline)"]
+        K --> M["models/metrics.json & model_metadata.json"]
     end
     
-    subgraph Production Deployment & Exploration
-        L --> N[Streamlit Web Application (app.py)]
-        L --> O[Interactive Colab Notebook]
+    subgraph "Production Deployment & Exploration"
+        L --> N["Streamlit Web Application (app.py)"]
+        L --> O["Interactive Colab Notebook"]
     end
 ```
 
