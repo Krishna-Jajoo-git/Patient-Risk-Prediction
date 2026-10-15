@@ -145,13 +145,8 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
         assert len(train_patients.intersection(test_patients)) == 0, "Patient leakage detected!"
         logger.info("Verified ZERO patient overlap between train and test splits.")
 
-        # Save balanced demo patients sample for UI from holdout test split
-        test_feat = features_df[features_df[pid_col].isin(test_patients)]
-        pos_pids = test_feat[test_feat[target_col] == 1][pid_col].head(15).tolist()
-        neg_pids = test_feat[test_feat[target_col] == 0][pid_col].head(15).tolist()
-        sample_test_pids = sorted(pos_pids + neg_pids)
-        demo_patients_df = raw_df[raw_df[pid_col].isin(sample_test_pids)].copy()
-        demo_patients_df.to_csv(processed_dir / "demo_patients.csv", index=False)
+        # Note: Stratified demo cohort generation is executed in step 8
+        # using the champion model to select 20 Low, 20 Medium, and 20 High risk patients.
     else:
         X_train, X_test, y_train, y_test = train_test_split(
             X,
@@ -337,6 +332,33 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
     inference_pipeline = _make_inference_pipeline(best_pipeline, numeric_features, categorical_features, cfg)
     joblib.dump(inference_pipeline, models_dir / "best_model.joblib")
     logger.info("Inference pipeline saved (SMOTE removed for predict-time use).")
+
+    # Save 60 demo patients sample for UI from holdout test split (20 Low, 20 Medium, 20 High risk)
+    if mode == "longitudinal":
+        test_feat = features_df[features_df[pid_col].isin(test_patients)].copy()
+        X_test_all = test_feat[numeric_features + categorical_features]
+        if hasattr(inference_pipeline, "predict_proba"):
+            test_probas = inference_pipeline.predict_proba(X_test_all)[:, 1]
+        else:
+            test_probas = inference_pipeline.predict(X_test_all).astype(float)
+        test_feat["predicted_risk_prob"] = test_probas
+
+        low_pids = test_feat[test_feat["predicted_risk_prob"] < 0.40][pid_col].head(20).tolist()
+        med_pids = test_feat[(test_feat["predicted_risk_prob"] >= 0.40) & (test_feat["predicted_risk_prob"] < 0.65)][pid_col].head(20).tolist()
+        high_pids = test_feat[test_feat["predicted_risk_prob"] >= 0.65][pid_col].head(20).tolist()
+
+        tier_map = {p: "Low Risk" for p in low_pids}
+        tier_map.update({p: "Medium Risk" for p in med_pids})
+        tier_map.update({p: "High Risk" for p in high_pids})
+
+        sample_test_pids = low_pids + med_pids + high_pids
+        demo_patients_df = raw_df[raw_df[pid_col].isin(sample_test_pids)].copy()
+        demo_patients_df["risk_tier"] = demo_patients_df[pid_col].map(tier_map)
+        demo_patients_df.to_csv(processed_dir / "demo_patients.csv", index=False)
+        logger.info(
+            "Saved 60 stratified demo patients (20 Low, 20 Medium, 20 High) to %s",
+            processed_dir / "demo_patients.csv"
+        )
 
     # Save metrics.json
     clean_metrics_json = {}

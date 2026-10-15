@@ -23,12 +23,12 @@ Navigate into the root directory of the project:
 
 ```powershell
 # Windows PowerShell
-cd "C:\Users\Krishna\OneDrive\Desktop\ml project 2"
+cd "C:\Users\Krishna\Desktop\ml project"
 ```
 
 ```bash
 # Linux / macOS
-cd /path/to/"ml project 2"
+cd /path/to/"ml project"
 ```
 
 ---
@@ -74,7 +74,7 @@ python3 -m venv .venv
 ---
 
 ### A.5 Upgrade pip & Install Project Dependencies
-Install all required libraries specified in [`requirements.txt`](file:///c:/Users/Krishna/OneDrive/Desktop/ml%20project%202/requirements.txt):
+Install all required libraries specified in [`requirements.txt`](file:///c:/Users/Krishna/Desktop/ml%20project/requirements.txt):
 
 ```bash
 python -m pip install --upgrade pip

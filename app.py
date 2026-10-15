@@ -725,18 +725,50 @@ def render_prediction_tab(cfg: Dict[str, Any], model: Any, metadata: Dict[str, A
             if demo_path.exists():
                 all_demo = pd.read_csv(demo_path)
                 pid_col = cfg["dataset"]["patient_id_col"]
-                patient_ids = sorted(list(all_demo[pid_col].unique()))
+
+                # Extract risk tier mapping if present in demo_patients.csv
+                tier_col_present = "risk_tier" in all_demo.columns
+                tier_map = {}
+                if tier_col_present:
+                    for _, row in all_demo[[pid_col, "risk_tier"]].drop_duplicates().iterrows():
+                        tier_map[row[pid_col]] = str(row["risk_tier"])
+
+                # Stratified risk cohort filter buttons
+                tier_filter = st.radio(
+                    "Stratified Risk Cohort Filter",
+                    ["All (60 Patients)", "🟢 Low Risk (20)", "🟡 Medium Risk (20)", "🔴 High Risk (20)"],
+                    horizontal=True,
+                )
+
+                if "Low Risk" in tier_filter:
+                    filtered_pids = sorted([p for p, t in tier_map.items() if t == "Low Risk"])
+                elif "Medium Risk" in tier_filter:
+                    filtered_pids = sorted([p for p, t in tier_map.items() if t == "Medium Risk"])
+                elif "High Risk" in tier_filter:
+                    filtered_pids = sorted([p for p, t in tier_map.items() if t == "High Risk"])
+                else:
+                    filtered_pids = sorted(list(all_demo[pid_col].unique()))
 
                 col_sel, col_desc = st.columns([2, 3])
                 with col_sel:
-                    selected_pid = st.selectbox("Choose Validation Cohort Patient ID", patient_ids)
+                    def format_patient_id(pid):
+                        tier = tier_map.get(pid, "")
+                        return f"{pid}  [{tier}]" if tier else pid
+
+                    selected_pid = st.selectbox(
+                        "Choose Validation Cohort Patient ID",
+                        filtered_pids,
+                        format_func=format_patient_id,
+                    )
                 with col_desc:
                     p_recs = all_demo[all_demo[pid_col] == selected_pid].sort_values(
                         by=cfg["dataset"]["date_col"]
                     ).reset_index(drop=True)
+                    patient_tier_label = tier_map.get(selected_pid, "")
+                    tier_badge_text = f" • **{patient_tier_label} Stratum**" if patient_tier_label else ""
                     st.write("")
                     st.caption(
-                        f"Loaded **{len(p_recs)}** chronological visits for patient **{selected_pid}**."
+                        f"Loaded **{len(p_recs)}** chronological visits for patient **{selected_pid}**{tier_badge_text}."
                     )
 
                 patient_history_df = p_recs
@@ -753,6 +785,7 @@ def render_prediction_tab(cfg: Dict[str, Any], model: Any, metadata: Dict[str, A
                 )
                 date_min = p_recs[cfg["dataset"]["date_col"]].iloc[0]
                 date_max = p_recs[cfg["dataset"]["date_col"]].iloc[-1]
+                tier_color = "#34d399" if "Low" in patient_tier_label else ("#fbbf24" if "Medium" in patient_tier_label else "#f87171")
 
                 st.markdown(
                     f"""
@@ -760,6 +793,10 @@ def render_prediction_tab(cfg: Dict[str, Any], model: Any, metadata: Dict[str, A
                         <div class="profile-item">
                             <span class="profile-label">Patient ID</span>
                             <span class="profile-value" style="color: #38bdf8;">{selected_pid}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">Risk Stratum</span>
+                            <span class="profile-value" style="color: {tier_color};">{patient_tier_label or 'Holdout Cohort'}</span>
                         </div>
                         <div class="profile-item">
                             <span class="profile-label">Age / Sex</span>
