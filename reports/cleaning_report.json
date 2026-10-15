@@ -1,81 +1,80 @@
 {
-  "initial_rows": 16472,
+  "initial_rows": 70000,
   "initial_missing": {
-    "patient_id": 0,
-    "date": 0,
-    "age": 643,
+    "id": 0,
+    "age": 0,
     "gender": 0,
-    "bmi": 682,
-    "systolic_bp": 702,
-    "glucose": 650,
-    "cholesterol": 660,
-    "medication_count": 700,
-    "outcome": 0
+    "height": 0,
+    "weight": 0,
+    "ap_hi": 0,
+    "ap_lo": 0,
+    "cholesterol": 0,
+    "gluc": 0,
+    "smoke": 0,
+    "alco": 0,
+    "active": 0,
+    "cardio": 0
   },
-  "duplicates_removed": 32,
+  "duplicates_removed": 0,
+  "bp_transpositions_fixed": 100,
   "impossible_values_nulled": {
     "age": 0,
-    "bmi": 33,
-    "systolic_bp": 46,
-    "glucose": 0,
-    "cholesterol": 0,
-    "medication_count": 0
+    "height": 53,
+    "weight": 20,
+    "ap_hi": 229,
+    "ap_lo": 1017
   },
   "iqr_outliers": {
+    "height": {
+      "count": 466,
+      "bounds": [
+        142.5,
+        186.5
+      ]
+    },
+    "weight": {
+      "count": 1799,
+      "bounds": [
+        39.5,
+        107.5
+      ]
+    },
+    "ap_hi": {
+      "count": 1153,
+      "bounds": [
+        90.0,
+        170.0
+      ]
+    },
+    "ap_lo": {
+      "count": 3527,
+      "bounds": [
+        65.0,
+        105.0
+      ]
+    },
     "age": {
-      "count": 0,
+      "count": 4,
       "bounds": [
-        -3.0,
-        109.0
-      ]
-    },
-    "bmi": {
-      "count": 0,
-      "bounds": [
-        6.9,
-        50.9
-      ]
-    },
-    "systolic_bp": {
-      "count": 0,
-      "bounds": [
-        51.0,
-        207.8
-      ]
-    },
-    "glucose": {
-      "count": 0,
-      "bounds": [
-        -0.15,
-        267.45
-      ]
-    },
-    "cholesterol": {
-      "count": 0,
-      "bounds": [
-        39.95,
-        358.75
-      ]
-    },
-    "medication_count": {
-      "count": 78,
-      "bounds": [
-        -2.0,
-        6.0
+        12169.5,
+        26821.5
       ]
     }
   },
-  "final_rows": 16440,
+  "final_rows": 70000,
   "final_missing": {
-    "patient_id": 0,
-    "date": 0,
-    "age": 640,
+    "id": 0,
+    "age": 0,
     "gender": 0,
-    "bmi": 715,
-    "systolic_bp": 745,
-    "glucose": 649,
-    "cholesterol": 660,
-    "medication_count": 700,
-    "outcome": 0
+    "height": 53,
+    "weight": 20,
+    "ap_hi": 229,
+    "ap_lo": 1017,
+    "cholesterol": 0,
+    "gluc": 0,
+    "smoke": 0,
+    "alco": 0,
+    "active": 0,
+    "cardio": 0
   }
 }

@@ -1,11 +1,14 @@
-"""Longitudinal feature aggregation and patient-level feature engineering.
+"""Feature engineering for Cardiovascular Disease dataset (cardio_train) and single-record clinical evaluation.
 
-Improvements:
-- Added clinical domain features: BMI category flags, hypertension flags,
-  diabetes-risk flags, composite risk score.
-- Added missingness indicator features (missingness is often informative).
-- Added trend-slope feature using linear regression over visits for vitals.
-- Cross-feature interactions (e.g., glucose × bmi, age × bp).
+Engineered features:
+- age_years: Standardized age in calendar years (computed from days or years).
+- bmi: Body Mass Index (weight_kg / (height_m)^2).
+- bmi_category: Underweight, Normal, Overweight, Obese.
+- pulse_pressure: Systolic BP minus Diastolic BP (marker of arterial stiffness).
+- map: Mean Arterial Pressure (ap_lo + (ap_hi - ap_lo) / 3).
+- bp_category: AHA/ACC clinical blood pressure category (Normal, Elevated, Stage 1 HTN, Stage 2 HTN, Crisis).
+- age_x_bp: Non-linear interaction between age and systolic blood pressure.
+- composite_risk_score: Multivariable cardiovascular risk score incorporating hemodynamics, metabolism, and lifestyle.
 """
 
 from typing import Any, Dict, List, Tuple
@@ -16,284 +19,234 @@ import pandas as pd
 def get_feature_lists(cfg: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     """Return lists of engineered numeric and categorical feature names."""
     dataset_cfg = cfg["dataset"]
-    mode = dataset_cfg["mode"]
+    mode = dataset_cfg.get("mode", "single_record")
 
-    if mode == "single_record":
-        num_cols = list(dataset_cfg.get("static_numeric", [])) + list(
-            dataset_cfg.get("time_varying_numeric", [])
-        )
-        cat_cols = list(dataset_cfg.get("static_categorical", []))
-        return num_cols, cat_cols
+    num_cols = list(dataset_cfg.get("static_numeric", [
+        "age_years",
+        "height",
+        "weight",
+        "ap_hi",
+        "ap_lo",
+        "bmi",
+        "pulse_pressure",
+        "map",
+        "age_x_bp",
+        "composite_risk_score",
+    ]))
 
-    # Longitudinal engineered features
-    num_cols = []
-    tv_cols = dataset_cfg.get("time_varying_numeric", [])
-    for col in tv_cols:
-        num_cols.extend([
-            f"{col}_latest",
-            f"{col}_first",
-            f"{col}_mean",
-            f"{col}_min",
-            f"{col}_max",
-            f"{col}_std",
-            f"{col}_change",
-            f"{col}_pct_change",
-            f"{col}_trend_slope",     # NEW: linear trend slope over visits
-            f"{col}_missing_rate",    # NEW: fraction of records where this was missing
-        ])
-
-    # Global trajectory features
-    num_cols.extend(["n_records", "span_days", "mean_gap_days"])
-
-    # Static features
-    num_cols.extend(dataset_cfg.get("static_numeric", []))
-
-    # --- Domain-specific derived features ---
-    # These are computed if the corresponding raw columns are present
-    domain_numeric = [
-        "composite_risk_score",     # weighted clinical risk index
-        "bmi_obese",                # BMI >= 30
-        "bmi_overweight",           # 25 <= BMI < 30
-        "hypertension_flag",        # systolic_bp_latest >= 140
-        "diabetes_risk_flag",       # glucose_latest >= 126 or glucose_mean >= 100
-        "high_cholesterol_flag",    # cholesterol_latest >= 200
-        "age_x_glucose",            # interaction: age × mean glucose
-        "age_x_bp",                 # interaction: age × mean systolic_bp
-        "bmi_x_glucose",            # interaction: bmi × mean glucose
-        "bp_glucose_product",       # systolic_bp_latest × glucose_latest
-        "poly_age2",                # age^2 to capture non-linear age effects
-    ]
-    num_cols.extend(domain_numeric)
-
-    cat_cols = list(dataset_cfg.get("static_categorical", []))
+    cat_cols = list(dataset_cfg.get("static_categorical", [
+        "gender",
+        "cholesterol",
+        "gluc",
+        "smoke",
+        "alco",
+        "active",
+        "bp_category",
+        "bmi_category",
+    ]))
 
     return num_cols, cat_cols
 
 
-def _linear_slope(series: pd.Series) -> float:
-    """Compute slope of best-fit line through (index, value) pairs. Returns 0 for < 2 points."""
-    vals = series.dropna().values
-    if len(vals) < 2:
-        return 0.0
-    x = np.arange(len(vals), dtype=float)
-    # Simple closed-form least-squares slope
-    x_mean = x.mean()
-    y_mean = vals.mean()
-    ss_x = ((x - x_mean) ** 2).sum()
-    if ss_x == 0:
-        return 0.0
-    slope = ((x - x_mean) * (vals - y_mean)).sum() / ss_x
-    return float(slope)
+def _compute_bp_category(ap_hi: float, ap_lo: float) -> str:
+    """Classify blood pressure into AHA/ACC guideline stages."""
+    if np.isnan(ap_hi) or np.isnan(ap_lo):
+        return "Unknown"
+    if ap_hi >= 180 or ap_lo >= 120:
+        return "Crisis"
+    if ap_hi >= 140 or ap_lo >= 90:
+        return "Stage 2 HTN"
+    if ap_hi >= 130 or ap_lo >= 80:
+        return "Stage 1 HTN"
+    if ap_hi >= 120 and ap_lo < 80:
+        return "Elevated"
+    if ap_hi < 120 and ap_lo < 80:
+        return "Normal"
+    return "Stage 1 HTN"
+
+
+def _compute_bmi_category(bmi: float) -> str:
+    """Classify Body Mass Index into WHO weight categories."""
+    if np.isnan(bmi):
+        return "Unknown"
+    if bmi < 18.5:
+        return "Underweight"
+    if bmi < 25.0:
+        return "Normal"
+    if bmi < 30.0:
+        return "Overweight"
+    return "Obese"
 
 
 def build_patient_features(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
-    """Aggregate longitudinal records into one feature row per patient.
+    """Transform raw cardiovascular patient records into engineered clinical feature representations.
 
-    In single_record mode, returns the selected columns directly.
-    In longitudinal mode, sorts records chronologically per patient and computes:
-      - Latest, first, mean, min, max, std, absolute change, percent change for vitals.
-      - Trend slope (linear regression over visits) for vitals.
-      - Missingness rate for each vital per patient.
-      - Total records (n_records), time span in days (span_days), average visit gap.
-      - Static baseline features and target label.
-      - Clinical domain features: BMI flags, hypertension, diabetes risk, interactions.
+    Supports both batch datasets and individual patient inputs.
     """
     dataset_cfg = cfg["dataset"]
-    mode = dataset_cfg["mode"]
-    target_col = dataset_cfg.get("target_col")
+    target_col = dataset_cfg.get("target_col", "cardio")
+    work = df.copy()
 
-    if mode == "single_record":
-        num_cols, cat_cols = get_feature_lists(cfg)
-        cols_to_keep = num_cols + cat_cols
-        if target_col and target_col in df.columns:
-            cols_to_keep.append(target_col)
-        return df[cols_to_keep].copy()
+    # 1. Age in years: if age > 120, raw value is in days (as in cardio_train.csv)
+    if "age_years" not in work.columns and "age" in work.columns:
+        work["age"] = pd.to_numeric(work["age"], errors="coerce")
+        work["age_years"] = np.where(work["age"] > 120, work["age"] / 365.25, work["age"])
+    elif "age_years" not in work.columns and "age" not in work.columns:
+        work["age_years"] = np.nan
 
-    pid_col = dataset_cfg["patient_id_col"]
-    date_col = dataset_cfg["date_col"]
-    tv_cols = dataset_cfg.get("time_varying_numeric", [])
-    static_num = dataset_cfg.get("static_numeric", [])
-    static_cat = dataset_cfg.get("static_categorical", [])
+    # 2. Hemodynamics & Anthropometrics
+    for col in ["height", "weight", "ap_hi", "ap_lo"]:
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce")
 
-    # Sort by patient and chronological date
-    work_df = df.copy()
-    work_df[date_col] = pd.to_datetime(work_df[date_col], errors="coerce")
-    work_df = work_df.sort_values(by=[pid_col, date_col]).reset_index(drop=True)
-
-    patient_rows = []
-
-    for pid, group in work_df.groupby(pid_col, sort=False):
-        row: Dict[str, Any] = {pid_col: pid}
-        n_recs = len(group)
-        row["n_records"] = n_recs
-
-        # Date calculations
-        valid_dates = group[date_col].dropna()
-        if len(valid_dates) >= 2:
-            span = (valid_dates.iloc[-1] - valid_dates.iloc[0]).total_seconds() / 86400.0
-            gaps = valid_dates.diff().dt.total_seconds().dropna() / 86400.0
-            mean_gap = float(gaps.mean()) if len(gaps) > 0 else 0.0
+    # Body Mass Index (BMI)
+    if "bmi" not in work.columns:
+        if "height" in work.columns and "weight" in work.columns:
+            height_m = work["height"] / 100.0
+            work["bmi"] = work["weight"] / (height_m ** 2)
+            # Clip extreme nonsensical BMI values to valid bounds
+            work.loc[(work["bmi"] < 10) | (work["bmi"] > 70), "bmi"] = np.nan
         else:
-            span = 0.0
-            mean_gap = 0.0
+            work["bmi"] = np.nan
 
-        row["span_days"] = round(float(span), 2)
-        row["mean_gap_days"] = round(float(mean_gap), 2)
+    # Pulse Pressure: ap_hi - ap_lo
+    if "pulse_pressure" not in work.columns:
+        if "ap_hi" in work.columns and "ap_lo" in work.columns:
+            work["pulse_pressure"] = work["ap_hi"] - work["ap_lo"]
+        else:
+            work["pulse_pressure"] = np.nan
 
-        # Time-varying vital aggregations
-        vital_aggs: Dict[str, Dict] = {}
-        for col in tv_cols:
-            raw_series = group[col]
-            vals = pd.to_numeric(raw_series, errors="coerce").dropna()
+    # Mean Arterial Pressure (MAP): DBP + 1/3 (SBP - DBP)
+    if "map" not in work.columns:
+        if "ap_hi" in work.columns and "ap_lo" in work.columns:
+            work["map"] = work["ap_lo"] + (work["ap_hi"] - work["ap_lo"]) / 3.0
+        else:
+            work["map"] = np.nan
 
-            missing_rate = round(float(raw_series.isna().sum()) / n_recs, 4)
-            row[f"{col}_missing_rate"] = missing_rate
+    # AHA Blood Pressure Category
+    if "bp_category" not in work.columns:
+        if "ap_hi" in work.columns and "ap_lo" in work.columns:
+            work["bp_category"] = [
+                _compute_bp_category(h, l) for h, l in zip(work["ap_hi"], work["ap_lo"])
+            ]
+        else:
+            work["bp_category"] = "Normal"
 
-            if len(vals) == 0:
-                row[f"{col}_latest"] = np.nan
-                row[f"{col}_first"] = np.nan
-                row[f"{col}_mean"] = np.nan
-                row[f"{col}_min"] = np.nan
-                row[f"{col}_max"] = np.nan
-                row[f"{col}_std"] = 0.0
-                row[f"{col}_change"] = 0.0
-                row[f"{col}_pct_change"] = np.nan
-                row[f"{col}_trend_slope"] = 0.0
-                vital_aggs[col] = {"mean": np.nan, "latest": np.nan}
-            else:
-                first_v = float(vals.iloc[0])
-                latest_v = float(vals.iloc[-1])
-                mean_v = float(vals.mean())
-                min_v = float(vals.min())
-                max_v = float(vals.max())
-                std_v = float(vals.std(ddof=1)) if len(vals) > 1 else 0.0
-                if np.isnan(std_v):
-                    std_v = 0.0
+    # WHO BMI Category
+    if "bmi_category" not in work.columns:
+        if "bmi" in work.columns:
+            work["bmi_category"] = [_compute_bmi_category(b) for b in work["bmi"]]
+        else:
+            work["bmi_category"] = "Normal"
 
-                chg = latest_v - first_v
-                pct_chg = (chg / first_v) if first_v != 0 else np.nan
-                slope = _linear_slope(vals)
+    # 3. Interactions & Non-linear combinations
+    if "age_x_bp" not in work.columns:
+        if "age_years" in work.columns and "ap_hi" in work.columns:
+            work["age_x_bp"] = (work["age_years"] * (work["ap_hi"] / 100.0)).round(2)
+        else:
+            work["age_x_bp"] = np.nan
 
-                row[f"{col}_latest"] = round(latest_v, 2)
-                row[f"{col}_first"] = round(first_v, 2)
-                row[f"{col}_mean"] = round(mean_v, 2)
-                row[f"{col}_min"] = round(min_v, 2)
-                row[f"{col}_max"] = round(max_v, 2)
-                row[f"{col}_std"] = round(std_v, 2)
-                row[f"{col}_change"] = round(chg, 2)
-                row[f"{col}_pct_change"] = round(float(pct_chg), 4) if not np.isnan(pct_chg) else np.nan
-                row[f"{col}_trend_slope"] = round(slope, 4)
-                vital_aggs[col] = {"mean": mean_v, "latest": latest_v}
+    # 4. Multivariable Composite Cardiovascular Risk Score
+    if "composite_risk_score" not in work.columns:
+        age_y = work.get("age_years", pd.Series(50, index=work.index)).fillna(50)
+        ap_h = work.get("ap_hi", pd.Series(120, index=work.index)).fillna(120)
+        chol = work.get("cholesterol", pd.Series(1, index=work.index)).fillna(1).astype(float)
+        gluc = work.get("gluc", pd.Series(1, index=work.index)).fillna(1).astype(float)
+        smoke = work.get("smoke", pd.Series(0, index=work.index)).fillna(0).astype(float)
+        act = work.get("active", pd.Series(1, index=work.index)).fillna(1).astype(float)
+        bmi_val = work.get("bmi", pd.Series(24, index=work.index)).fillna(24)
 
-        # Static attributes
-        age_val = np.nan
-        for col in static_num:
-            vals = pd.to_numeric(group[col], errors="coerce").dropna()
-            val = float(vals.iloc[-1]) if len(vals) > 0 else np.nan
-            row[col] = val
-            if col == "age":
-                age_val = val
+        age_term = np.maximum(0, (age_y - 30) / 35.0) * 2.0
+        bp_term = np.maximum(0, (ap_h - 110) / 60.0) * 2.5
+        chol_term = (chol - 1.0) * 1.5
+        gluc_term = (gluc - 1.0) * 1.2
+        smoke_term = smoke * 1.8
+        act_term = (1.0 - act) * 0.8
+        bmi_term = np.maximum(0, (bmi_val - 22.0) / 15.0) * 1.2
 
-        for col in static_cat:
-            vals = group[col].dropna()
-            row[col] = vals.iloc[-1] if len(vals) > 0 else np.nan
+        composite = (age_term + bp_term + chol_term + gluc_term + smoke_term + act_term + bmi_term) / 10.0
+        work["composite_risk_score"] = composite.round(4)
 
-        # --- Clinical domain features ---
-        bmi_mean = vital_aggs.get("bmi", {}).get("mean", np.nan)
-        bmi_latest = vital_aggs.get("bmi", {}).get("latest", np.nan)
-        bp_latest = vital_aggs.get("systolic_bp", {}).get("latest", np.nan)
-        bp_mean = vital_aggs.get("systolic_bp", {}).get("mean", np.nan)
-        gluc_latest = vital_aggs.get("glucose", {}).get("latest", np.nan)
-        gluc_mean = vital_aggs.get("glucose", {}).get("mean", np.nan)
-        chol_latest = vital_aggs.get("cholesterol", {}).get("latest", np.nan)
+    # 5. Categorical column formatting
+    for c in ["gender", "cholesterol", "gluc", "smoke", "alco", "active"]:
+        if c in work.columns:
+            work[c] = work[c].astype(str)
 
-        # BMI category flags (0/1)
-        row["bmi_obese"] = int(bmi_latest >= 30) if not np.isnan(bmi_latest) else 0
-        row["bmi_overweight"] = int(25 <= bmi_latest < 30) if not np.isnan(bmi_latest) else 0
+    num_cols, cat_cols = get_feature_lists(cfg)
+    cols_to_keep = [c for c in num_cols + cat_cols if c in work.columns]
 
-        # Hypertension (systolic >= 140)
-        row["hypertension_flag"] = int(bp_latest >= 140) if not np.isnan(bp_latest) else 0
+    if "id" in work.columns:
+        cols_to_keep.insert(0, "id")
+    if target_col in work.columns:
+        cols_to_keep.append(target_col)
 
-        # Diabetes risk (fasting glucose >= 126 mg/dL OR mean >= 100)
-        diab_flag = 0
-        if not np.isnan(gluc_latest) and gluc_latest >= 126:
-            diab_flag = 1
-        elif not np.isnan(gluc_mean) and gluc_mean >= 100:
-            diab_flag = 1
-        row["diabetes_risk_flag"] = diab_flag
-
-        # High cholesterol (>= 200 mg/dL)
-        row["high_cholesterol_flag"] = int(chol_latest >= 200) if not np.isnan(chol_latest) else 0
-
-        # Composite risk score (weighted sum of key risk factors, normalized)
-        # Weights based on clinical significance
-        risk = 0.0
-        if not np.isnan(age_val):
-            risk += (age_val / 100.0) * 2.0
-        if not np.isnan(bmi_mean):
-            risk += max(0.0, (bmi_mean - 18.5) / 40.0) * 1.5
-        if not np.isnan(bp_mean):
-            risk += max(0.0, (bp_mean - 90.0) / 160.0) * 2.0
-        if not np.isnan(gluc_mean):
-            risk += max(0.0, (gluc_mean - 70.0) / 200.0) * 2.0
-        if not np.isnan(chol_latest):
-            risk += max(0.0, (chol_latest - 150.0) / 300.0) * 1.0
-        row["composite_risk_score"] = round(risk, 4)
-
-        # Interaction features
-        row["age_x_glucose"] = round(age_val * gluc_mean, 2) if not (np.isnan(age_val) or np.isnan(gluc_mean)) else np.nan
-        row["age_x_bp"] = round(age_val * bp_mean, 2) if not (np.isnan(age_val) or np.isnan(bp_mean)) else np.nan
-        row["bmi_x_glucose"] = round(bmi_mean * gluc_mean, 2) if not (np.isnan(bmi_mean) or np.isnan(gluc_mean)) else np.nan
-        row["bp_glucose_product"] = round(bp_latest * gluc_latest, 2) if not (np.isnan(bp_latest) or np.isnan(gluc_latest)) else np.nan
-        row["poly_age2"] = round(age_val ** 2, 2) if not np.isnan(age_val) else np.nan
-
-        # Target outcome (last recorded)
-        if target_col and target_col in group.columns:
-            t_vals = group[target_col].dropna()
-            row[target_col] = t_vals.iloc[-1] if len(t_vals) > 0 else np.nan
-
-        patient_rows.append(row)
-
-    return pd.DataFrame(patient_rows)
+    return work[cols_to_keep].copy()
 
 
 def summarize_patient(patient_df: pd.DataFrame, cfg: Dict[str, Any]) -> Dict[str, Any]:
-    """Compute summary KPIs for display cards in the user interface."""
-    dataset_cfg = cfg["dataset"]
-    mode = dataset_cfg["mode"]
-    tv_cols = dataset_cfg.get("time_varying_numeric", [])
+    """Extract clinical summary metrics for a single patient record to render KPI display cards."""
+    if patient_df.empty:
+        return {}
 
-    summary: Dict[str, Any] = {
-        "n_records": len(patient_df),
-        "vitals": {},
+    row = patient_df.iloc[-1]
+
+    # Age
+    raw_age = row.get("age", np.nan)
+    if pd.notna(raw_age):
+        age_years = round(float(raw_age) / 365.25, 1) if float(raw_age) > 120 else round(float(raw_age), 1)
+    else:
+        age_years = row.get("age_years", 50.0)
+
+    # Gender
+    gender_raw = str(row.get("gender", "1"))
+    gender_label = "Female" if gender_raw in ("1", "1.0", "F", "Female") else "Male"
+
+    # Anthropometrics
+    height = float(row.get("height", 165))
+    weight = float(row.get("weight", 70))
+    bmi = float(row.get("bmi", weight / ((height / 100.0) ** 2))) if height > 0 else 24.0
+
+    # Hemodynamics
+    ap_hi = float(row.get("ap_hi", 120))
+    ap_lo = float(row.get("ap_lo", 80))
+    pulse_pressure = ap_hi - ap_lo
+    mean_ap = ap_lo + pulse_pressure / 3.0
+
+    # Metabolic & Behavioral
+    chol = int(float(row.get("cholesterol", 1)))
+    gluc = int(float(row.get("gluc", 1)))
+    smoke = int(float(row.get("smoke", 0)))
+    alco = int(float(row.get("alco", 0)))
+    active = int(float(row.get("active", 1)))
+
+    chol_labels = {1: "Normal", 2: "Above Normal", 3: "Well Above Normal"}
+    gluc_labels = {1: "Normal", 2: "Above Normal", 3: "Well Above Normal"}
+
+    return {
+        "demographics": {
+            "age_years": age_years,
+            "gender": gender_label,
+            "height": height,
+            "weight": weight,
+            "bmi": round(bmi, 1),
+            "bmi_category": _compute_bmi_category(bmi),
+        },
+        "hemodynamics": {
+            "ap_hi": round(ap_hi, 0),
+            "ap_lo": round(ap_lo, 0),
+            "pulse_pressure": round(pulse_pressure, 0),
+            "mean_arterial_pressure": round(mean_ap, 1),
+            "bp_category": _compute_bp_category(ap_hi, ap_lo),
+        },
+        "metabolic": {
+            "cholesterol_level": chol,
+            "cholesterol_label": chol_labels.get(chol, "Normal"),
+            "glucose_level": gluc,
+            "glucose_label": gluc_labels.get(gluc, "Normal"),
+        },
+        "lifestyle": {
+            "smoking": "Yes (Smoker)" if smoke == 1 else "No (Non-smoker)",
+            "alcohol": "Yes (Drinks alcohol)" if alco == 1 else "No (Non-drinker)",
+            "physical_activity": "Active" if active == 1 else "Sedentary / Inactive",
+        },
     }
-
-    if mode == "longitudinal":
-        date_col = dataset_cfg["date_col"]
-        valid_dates = pd.to_datetime(patient_df[date_col], errors="coerce").dropna()
-        if len(valid_dates) >= 2:
-            span_days = int((valid_dates.iloc[-1] - valid_dates.iloc[0]).total_seconds() / 86400.0)
-            summary["span_days"] = span_days
-            summary["date_range"] = f"{valid_dates.iloc[0].strftime('%b %d, %Y')} - {valid_dates.iloc[-1].strftime('%b %d, %Y')}"
-        else:
-            summary["span_days"] = 0
-            summary["date_range"] = "Single observation"
-
-    for col in tv_cols:
-        if col in patient_df.columns:
-            series = pd.to_numeric(patient_df[col], errors="coerce").dropna()
-            if len(series) > 0:
-                first_val = float(series.iloc[0])
-                latest_val = float(series.iloc[-1])
-                mean_val = float(series.mean())
-                chg = latest_val - first_val
-                pct = ((chg / first_val) * 100) if first_val != 0 else 0.0
-                summary["vitals"][col] = {
-                    "first": round(first_val, 1),
-                    "latest": round(latest_val, 1),
-                    "mean": round(mean_val, 1),
-                    "change": round(chg, 1),
-                    "pct_change": round(pct, 1),
-                }
-
-    return summary

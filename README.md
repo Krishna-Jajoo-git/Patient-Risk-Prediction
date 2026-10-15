@@ -11,13 +11,15 @@
 
 ## 1. Project Overview
 
-This repository implements an academic, reproducible, supervised machine-learning system designed to predict patient health-risk outcomes from structured medical records. The pipeline specializes in **longitudinal patient trajectories**—automatically computing vital changes, percentage rates of change, visit variance, and cumulative exposure without requiring clinical users to manually calculate or type engineered features.
+This repository implements an academic, reproducible, supervised machine-learning system designed to predict patient health-risk outcomes from structured medical records. The pipeline evaluates real-world clinical examination records from the **70,000-patient CardioTrain cohort**, extracting physiological biomarkers, hemodynamic indicators, and metabolic categories.
+
+For an in-depth clinical guide on all conditions that fall under cardiovascular disease, their pathophysiological mechanisms, and how they map to our dataset biomarkers, see [CARDIOVASCULAR_DISEASES_README.md](file:///c:/Users/Krishna/Desktop/ml%20project/CARDIOVASCULAR_DISEASES_README.md).
 
 Four distinct classical machine-learning algorithms are systematically trained, cross-validated, tuned via grid search, and benchmarked on a strictly held-out test split:
-1. **K-Nearest Neighbours (KNN)**
-2. **Decision Tree Classifier**
-3. **Logistic Regression**
-4. **Random Forest Classifier**
+1. **Random Forest Classifier** *(Champion Model)*
+2. **Logistic Regression**
+3. **Decision Tree Classifier**
+4. **K-Nearest Neighbours (KNN)**
 
 ---
 
@@ -158,7 +160,7 @@ patient-risk-prediction/
 The self-contained notebook [`notebooks/Patient_Risk_Prediction_Colab.ipynb`](file:///c:/Users/Krishna/OneDrive/Desktop/ml%20project%202/notebooks/Patient_Risk_Prediction_Colab.ipynb) is organized into 18 faculty-friendly sections:
 - **Zero-Dependency Setup:** Defines all logic inline matching `src/` function signatures.
 - **Three Data Source Modes:** Switch between `"demo"`, Google Colab file `"upload"`, or Google `"drive"`.
-- **Viva Cheat-Sheet:** Includes direct Q&A for faculty defense on data leakage, scaling rationale, and metric choice.
+- **Methodology Summary:** Covers data leakage prevention, scaling rationale, and metric choice.
 
 ---
 

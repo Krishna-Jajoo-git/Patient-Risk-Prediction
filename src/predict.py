@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import joblib
 import numpy as np
 import pandas as pd
@@ -55,24 +55,31 @@ def validate_input(df: pd.DataFrame, cfg: Dict[str, Any]) -> List[str]:
     return validate_schema(df, cfg, require_target=False)
 
 
-def predict_from_history(
-    history_df: pd.DataFrame, cfg: Dict[str, Any], model: Pipeline
+def predict_patient(
+    patient_data: Union[pd.DataFrame, Dict[str, Any]],
+    cfg: Dict[str, Any],
+    model: Pipeline,
 ) -> Dict[str, Any]:
-    """Process a single patient's raw medical history records and compute prediction.
+    """Process a patient record and compute cardiovascular risk prediction.
 
     Pipeline:
       1. Clean input data (impossible ranges, format standardization)
-      2. Aggregate longitudinal trajectory into single patient feature vector
+      2. Engineer domain features (BMI, Pulse Pressure, MAP, categories, interactions)
       3. Compute prediction & calibrated probabilities via the saved Pipeline
-      4. Extract clinical summary cards
+      4. Extract clinical summary metrics for display
 
     Returns:
-        dict: Prediction results, label text, probabilities, feature vector, and vital summaries.
+        dict: Prediction results, label text, risk level, probabilities, feature vector, and clinical summaries.
     """
-    if history_df.empty:
-        raise ValueError("Cannot predict on empty patient history.")
+    if isinstance(patient_data, dict):
+        raw_df = pd.DataFrame([patient_data])
+    else:
+        raw_df = patient_data.copy()
 
-    cleaned_df, _ = clean_data(history_df, cfg)
+    if raw_df.empty:
+        raise ValueError("Cannot predict on empty patient data.")
+
+    cleaned_df, _ = clean_data(raw_df, cfg)
     features_df = build_patient_features(cleaned_df, cfg)
 
     num_cols, cat_cols = get_feature_lists(cfg)
@@ -89,22 +96,17 @@ def predict_from_history(
 
     if hasattr(model, "predict_proba"):
         probas = model.predict_proba(X)[0]
-        # In binary classification, probability of positive/elevated risk
+        # Probability of positive class (cardiovascular disease)
         prob = float(probas[1]) if len(probas) > 1 else float(probas[0])
         class_probas = [float(p) for p in probas]
     else:
         prob = 1.0 if pred == 1 else 0.0
         class_probas = [1.0 - prob, prob]
 
-    task = cfg["dataset"].get("task", "binary")
-    if task == "binary":
-        label_text = "Elevated Health Risk" if pred == 1 else "Normal / Low Risk"
-        risk_level = "High" if prob >= 0.65 else ("Moderate" if prob >= 0.40 else "Low")
-    else:
-        label_text = f"Class {pred}"
-        risk_level = "Categorical"
+    label_text = "Cardiovascular Disease Present (High Risk)" if pred == 1 else "Normal / Low Cardiovascular Risk"
+    risk_level = "High" if prob >= 0.60 else ("Moderate" if prob >= 0.35 else "Low")
 
-    summary = summarize_patient(cleaned_df, cfg)
+    summary = summarize_patient(raw_df, cfg)
     features_dict = X.iloc[0].to_dict()
 
     return {
@@ -118,17 +120,27 @@ def predict_from_history(
     }
 
 
+def predict_from_history(
+    history_df: pd.DataFrame, cfg: Dict[str, Any], model: Pipeline
+) -> Dict[str, Any]:
+    """Compatibility alias for predict_patient."""
+    return predict_patient(history_df, cfg, model)
+
+
 def predict_from_features(features_df: pd.DataFrame, model: Pipeline) -> pd.DataFrame:
-    """Batch prediction on pre-engineered feature table."""
+    """Batch prediction on raw or pre-engineered feature table."""
     cfg = load_config()
+    cleaned_df, _ = clean_data(features_df, cfg)
+    feat_df = build_patient_features(cleaned_df, cfg)
+
     num_cols, cat_cols = get_feature_lists(cfg)
     expected = num_cols + cat_cols
 
     for c in expected:
-        if c not in features_df.columns:
-            features_df[c] = np.nan
+        if c not in feat_df.columns:
+            feat_df[c] = np.nan
 
-    X = features_df[expected]
+    X = feat_df[expected]
     preds = model.predict(X)
     out = features_df.copy()
     out["prediction"] = preds
@@ -137,5 +149,8 @@ def predict_from_features(features_df: pd.DataFrame, model: Pipeline) -> pd.Data
         probas = model.predict_proba(X)
         if probas.shape[1] == 2:
             out["risk_probability"] = probas[:, 1]
+            out["risk_level"] = [
+                "High" if p >= 0.60 else ("Moderate" if p >= 0.35 else "Low") for p in probas[:, 1]
+            ]
 
     return out

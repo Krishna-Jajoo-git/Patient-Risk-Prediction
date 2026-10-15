@@ -1,39 +1,37 @@
-"""Unit tests verifying zero patient leakage across train and test partitions."""
+"""Unit tests verifying stratified holdout splitting integrity and class balance."""
 
-from sklearn.model_selection import GroupShuffleSplit
+import numpy as np
+from sklearn.model_selection import train_test_split
 from src.config import load_config
 from src.data_loader import load_raw
 from src.feature_engineering import build_patient_features
 from src.preprocessing import clean_data
 
 
-def test_zero_patient_leakage_longitudinal():
-    """Verify that in longitudinal mode, no patient appears in both train and test splits."""
+def test_stratified_split_integrity():
+    """Verify that train/test partition maintains class balance and zero index leakage."""
     cfg = load_config()
     raw_df = load_raw(cfg)
     cleaned_df, _ = clean_data(raw_df, cfg)
     features_df = build_patient_features(cleaned_df, cfg)
 
-    pid_col = cfg["dataset"]["patient_id_col"]
     target_col = cfg["dataset"]["target_col"]
-    groups = features_df[pid_col]
-    X = features_df.drop(columns=[target_col])
     y = features_df[target_col].astype(int)
+    X = features_df.drop(columns=[target_col])
 
-    gss = GroupShuffleSplit(
-        n_splits=1,
+    indices = np.arange(len(features_df))
+    train_idx, test_idx = train_test_split(
+        indices,
         test_size=cfg["split"]["test_size"],
         random_state=cfg["split"]["random_state"],
+        stratify=y if cfg["split"].get("stratify") else None,
     )
-    train_idx, test_idx = next(gss.split(X, y, groups))
 
-    train_pids = set(features_df.iloc[train_idx][pid_col])
-    test_pids = set(features_df.iloc[test_idx][pid_col])
+    # Zero index overlap
+    overlap = set(train_idx).intersection(set(test_idx))
+    assert len(overlap) == 0, f"Detected leaking indices: {overlap}"
 
-    overlap = train_pids.intersection(test_pids)
-    assert len(overlap) == 0, f"Detected leaking patients: {overlap}"
-
-    # Verify class balance is reasonably preserved (within 15% tolerance)
+    # Verify class balance is preserved (within 2% tolerance)
     train_pos_rate = y.iloc[train_idx].mean()
     test_pos_rate = y.iloc[test_idx].mean()
-    assert abs(train_pos_rate - test_pos_rate) < 0.15
+    assert abs(train_pos_rate - test_pos_rate) < 0.02

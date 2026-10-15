@@ -1,12 +1,4 @@
-"""Model training, hyperparameter tuning, evaluation, and artifact generation.
-
-Improvements over v1:
-- SMOTE oversampling applied inside pipeline on training folds (no leakage).
-- RandomizedSearchCV with wider grids for faster broad exploration.
-- Filter incompatible param combos for Logistic Regression (l1 needs liblinear/saga).
-- Feature selection (SelectFromModel) added as optional step.
-- Richer feature engineering (see feature_engineering.py).
-"""
+"""Model training, hyperparameter tuning, evaluation, and artifact generation for Cardiovascular Disease dataset."""
 
 import datetime
 import json
@@ -22,7 +14,6 @@ from sklearn import __version__ as sklearn_version
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import (
-    GroupShuffleSplit,
     RandomizedSearchCV,
     StratifiedKFold,
     train_test_split,
@@ -49,30 +40,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 
-def _filter_lr_param_grid(grid: Dict[str, List]) -> List[Dict[str, Any]]:
-    """Build explicit list of valid Logistic Regression parameter combos.
-
-    l1 penalty → only 'liblinear' or 'saga' solvers.
-    l2 / no penalty → any solver.
-    Returns a list of dicts (param_distributions for RandomizedSearchCV).
-    """
-    valid_combos = []
-    for penalty in grid.get("clf__penalty", ["l2"]):
-        for solver in grid.get("clf__solver", ["lbfgs"]):
-            if penalty == "l1" and solver not in ("liblinear", "saga"):
-                continue  # incompatible
-            if penalty == "l2" and solver == "liblinear":
-                pass  # liblinear supports l2 but is slow; include it
-            combo = {
-                "clf__C": grid.get("clf__C", [1.0]),
-                "clf__class_weight": grid.get("clf__class_weight", [None]),
-                "clf__penalty": [penalty],
-                "clf__solver": [solver],
-            }
-            valid_combos.append(combo)
-    return valid_combos
-
-
 def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Execute end-to-end training pipeline and persist evaluation artifacts."""
     dataset_cfg = cfg["dataset"]
@@ -96,6 +63,8 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
     if schema_errs:
         raise ValueError(f"Dataset schema validation failed: {schema_errs}")
 
+    logger.info("Raw dataset shape: %s", raw_df.shape)
+
     # 2. Clean data without leakage
     logger.info("Cleaning data and logging validation checks...")
     cleaned_df, cleaning_report = clean_data(raw_df, cfg)
@@ -107,105 +76,74 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
     plot_missing_before_after(cleaning_report, figures_dir / "missing_values_before_after.png")
 
     # 3. Feature engineering
-    logger.info("Engineering features for mode: %s", dataset_cfg["mode"])
+    logger.info("Engineering clinical domain features for cardio dataset...")
     features_df = build_patient_features(cleaned_df, cfg)
     features_df.to_csv(processed_dir / "patient_features.csv", index=False)
 
     target_col = dataset_cfg["target_col"]
-    mode = dataset_cfg["mode"]
     numeric_features, categorical_features = get_feature_lists(cfg)
 
-    # Only keep features that actually exist in the dataframe
     numeric_features = [f for f in numeric_features if f in features_df.columns]
     categorical_features = [f for f in categorical_features if f in features_df.columns]
 
     X = features_df[numeric_features + categorical_features]
     y = features_df[target_col].astype(int)
 
-    # 4. Train/Test Split (Strict patient grouping in longitudinal mode)
+    # 4. Train/Test Split (Stratified holdout)
     logger.info(
         "Splitting dataset (test_size=%.2f, random_state=%d)...",
         split_cfg["test_size"],
         split_cfg["random_state"],
     )
-    if mode == "longitudinal":
-        pid_col = dataset_cfg["patient_id_col"]
-        groups = features_df[pid_col]
-        gss = GroupShuffleSplit(
-            n_splits=1,
-            test_size=split_cfg["test_size"],
-            random_state=split_cfg["random_state"],
-        )
-        train_idx, test_idx = next(gss.split(X, y, groups))
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+    
+    indices = np.arange(len(features_df))
+    train_idx, test_idx = train_test_split(
+        indices,
+        test_size=split_cfg["test_size"],
+        random_state=split_cfg["random_state"],
+        stratify=y if split_cfg.get("stratify") else None,
+    )
 
-        train_patients = set(features_df.iloc[train_idx][pid_col])
-        test_patients = set(features_df.iloc[test_idx][pid_col])
-        assert len(train_patients.intersection(test_patients)) == 0, "Patient leakage detected!"
-        logger.info("Verified ZERO patient overlap between train and test splits.")
-
-        # Save balanced demo patients sample for UI from holdout test split
-        test_feat = features_df[features_df[pid_col].isin(test_patients)]
-        pos_pids = test_feat[test_feat[target_col] == 1][pid_col].head(15).tolist()
-        neg_pids = test_feat[test_feat[target_col] == 0][pid_col].head(15).tolist()
-        sample_test_pids = sorted(pos_pids + neg_pids)
-        demo_patients_df = raw_df[raw_df[pid_col].isin(sample_test_pids)].copy()
-        demo_patients_df.to_csv(processed_dir / "demo_patients.csv", index=False)
-    else:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X,
-            y,
-            test_size=split_cfg["test_size"],
-            random_state=split_cfg["random_state"],
-            stratify=y if split_cfg.get("stratify") else None,
-        )
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
     logger.info("Train class balance:\n%s", y_train.value_counts(normalize=True).to_dict())
     logger.info("Test class balance:\n%s", y_test.value_counts(normalize=True).to_dict())
     logger.info("Train shape: %s | Test shape: %s", X_train.shape, X_test.shape)
 
-    # 5. Decide whether to use SMOTE
-    use_smote = preproc_cfg.get("use_smote", False)
-    if use_smote:
-        try:
-            from imblearn.over_sampling import SMOTE
-            from imblearn.pipeline import Pipeline as ImbPipeline
-            pipeline_class = ImbPipeline
-            logger.info("SMOTE enabled — will oversample minority class inside training folds.")
-        except ImportError:
-            logger.warning("imbalanced-learn not installed; falling back to plain Pipeline.")
-            use_smote = False
-            pipeline_class = Pipeline
-    else:
-        pipeline_class = Pipeline
+    # Save a balanced sample of holdout test patients with original raw fields for UI exploration
+    test_raw = raw_df.iloc[test_idx].copy()
+    pos_samples = test_raw[test_raw[target_col] == 1].head(50)
+    neg_samples = test_raw[test_raw[target_col] == 0].head(50)
+    demo_patients_df = pd.concat([pos_samples, neg_samples]).sample(frac=1.0, random_state=split_cfg["random_state"])
+    demo_patients_df.to_csv(processed_dir / "demo_patients.csv", index=False)
+    logger.info("Saved %d holdout test validation patients to demo_patients.csv", len(demo_patients_df))
 
-    # 6. Define candidate models
+    # 5. Define candidate models
     models_config = {
-        "knn": {
-            "display_name": "K-Nearest Neighbours",
-            "estimator": KNeighborsClassifier(),
-            "grid": train_cfg["param_grids"].get("knn", {}),
-            "use_smote": use_smote,  # SMOTE helps KNN since it's distance-based
+        "random_forest": {
+            "display_name": "Random Forest",
+            "estimator": RandomForestClassifier(random_state=split_cfg["random_state"], n_jobs=-1),
+            "grid": train_cfg["param_grids"].get("random_forest", {}),
+            "n_iter": 6,
+        },
+        "logistic_regression": {
+            "display_name": "Logistic Regression",
+            "estimator": LogisticRegression(random_state=split_cfg["random_state"], max_iter=1000),
+            "grid": train_cfg["param_grids"].get("logistic_regression", {}),
+            "n_iter": 4,
         },
         "decision_tree": {
             "display_name": "Decision Tree",
             "estimator": DecisionTreeClassifier(random_state=split_cfg["random_state"]),
             "grid": train_cfg["param_grids"].get("decision_tree", {}),
-            "use_smote": use_smote,
+            "n_iter": 8,
         },
-        "logistic_regression": {
-            "display_name": "Logistic Regression",
-            "estimator": LogisticRegression(random_state=split_cfg["random_state"], max_iter=3000),
-            "grid": _filter_lr_param_grid(train_cfg["param_grids"].get("logistic_regression", {})),
-            "use_smote": use_smote,
-            "is_lr": True,
-        },
-        "random_forest": {
-            "display_name": "Random Forest",
-            "estimator": RandomForestClassifier(random_state=split_cfg["random_state"]),
-            "grid": train_cfg["param_grids"].get("random_forest", {}),
-            "use_smote": use_smote,
+        "knn": {
+            "display_name": "K-Nearest Neighbours",
+            "estimator": KNeighborsClassifier(n_jobs=-1),
+            "grid": train_cfg["param_grids"].get("knn", {}),
+            "n_iter": 3,
         },
     }
 
@@ -221,24 +159,26 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
     for key, item in models_config.items():
         logger.info("Training and tuning: %s", item["display_name"])
         preprocessor = build_preprocessor(cfg, numeric_features, categorical_features)
-
-        # Build steps
-        steps = [("prep", preprocessor)]
-        if item.get("use_smote"):
-            from imblearn.over_sampling import SMOTE
-            steps.append(("smote", SMOTE(random_state=split_cfg["random_state"], k_neighbors=3)))
-        steps.append(("clf", item["estimator"]))
-
-        if item.get("use_smote"):
-            from imblearn.pipeline import Pipeline as ImbPipeline
-            pipeline = ImbPipeline(steps)
-        else:
-            pipeline = Pipeline(steps)
+        pipeline = Pipeline([
+            ("prep", preprocessor),
+            ("clf", item["estimator"]),
+        ])
 
         cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=split_cfg["random_state"])
+        n_iter = item.get("n_iter", 5)
 
-        # RandomizedSearchCV for wider grids; n_iter controls budget
-        n_iter = 40 if key != "logistic_regression" else 60
+        # For KNN on 56k rows, use a stratified subsample of 12,000 for hyperparameter search to ensure rapid convergence
+        if key == "knn" and len(X_train) > 15000:
+            tune_idx, _ = train_test_split(
+                np.arange(len(X_train)),
+                train_size=12000,
+                random_state=split_cfg["random_state"],
+                stratify=y_train,
+            )
+            X_tune, y_tune = X_train.iloc[tune_idx], y_train.iloc[tune_idx]
+        else:
+            X_tune, y_tune = X_train, y_train
+
         search = RandomizedSearchCV(
             estimator=pipeline,
             param_distributions=item["grid"],
@@ -249,9 +189,14 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
             random_state=split_cfg["random_state"],
             refit=True,
         )
-        search.fit(X_train, y_train)
+        search.fit(X_tune, y_tune)
 
+        # Refit best estimator on full training set
         fitted_pipe = search.best_estimator_
+        if key == "knn" and len(X_train) > 15000:
+            logger.info("Refitting tuned KNN on full training cohort...")
+            fitted_pipe.fit(X_train, y_train)
+
         y_pred = fitted_pipe.predict(X_test)
         y_proba = fitted_pipe.predict_proba(X_test) if hasattr(fitted_pipe, "predict_proba") else None
 
@@ -280,7 +225,6 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
         metrics_row = {"model": item["display_name"], **test_metrics}
         metrics_summary.append(metrics_row)
 
-        # Model selection logic
         score = test_metrics.get(primary_metric, 0.0)
         roc = test_metrics.get("roc_auc") or 0.0
         if score > best_score or (
@@ -292,14 +236,13 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
             best_pipeline = fitted_pipe
 
         logger.info(
-            "  %s → Test F1=%.4f, ROC-AUC=%.4f, Acc=%.4f | Best CV=%s: %.4f | Best params: %s",
+            "  %s → Test F1=%.4f, ROC-AUC=%.4f, Acc=%.4f | Best CV=%s: %.4f",
             item["display_name"],
             test_metrics.get("f1", 0),
             test_metrics.get("roc_auc", 0),
             test_metrics.get("accuracy", 0),
             primary_metric,
             search.best_score_,
-            search.best_params_,
         )
 
     logger.info(
@@ -309,7 +252,7 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
         best_score,
     )
 
-    # 7. Evaluation plots
+    # 6. Evaluation plots
     metrics_df = pd.DataFrame(metrics_summary)
     plot_metric_comparison(metrics_df, figures_dir / "model_comparison.png")
     plot_roc_curves(results, figures_dir / "roc_curves.png")
@@ -332,11 +275,9 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
         figures_dir / "feature_importance.png",
     )
 
-    # 8. Persist Artifacts
-    # Save best pipeline (strip SMOTE from inference pipeline)
-    inference_pipeline = _make_inference_pipeline(best_pipeline, numeric_features, categorical_features, cfg)
-    joblib.dump(inference_pipeline, models_dir / "best_model.joblib")
-    logger.info("Inference pipeline saved (SMOTE removed for predict-time use).")
+    # 7. Persist Artifacts
+    joblib.dump(best_pipeline, models_dir / "best_model.joblib")
+    logger.info("Saved best model pipeline to %s", models_dir / "best_model.joblib")
 
     # Save metrics.json
     clean_metrics_json = {}
@@ -353,15 +294,15 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     cat_values = {}
     for c in categorical_features:
-        if c in cleaned_df.columns:
-            cat_values[c] = sorted([str(x) for x in cleaned_df[c].dropna().unique()])
+        if c in features_df.columns:
+            cat_values[c] = sorted([str(x) for x in features_df[c].dropna().unique()])
 
     # Save model_metadata.json
     metadata = {
         "best_model_key": best_model_key,
         "best_model_name": models_config[best_model_key]["display_name"],
         "dataset_name": dataset_cfg["name"],
-        "is_synthetic": "SYNTHETIC" in dataset_cfg["name"].upper(),
+        "is_synthetic": False,
         "mode": dataset_cfg["mode"],
         "target_col": target_col,
         "task": dataset_cfg["task"],
@@ -372,10 +313,10 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
             "all_input_features": numeric_features + categorical_features,
         },
         "categorical_values": cat_values,
-        "class_labels": [0, 1] if dataset_cfg["task"] == "binary" else sorted(list(np.unique(y))),
+        "class_labels": [0, 1],
         "training_date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "scikit_learn_version": sklearn_version,
-        "smote_used": use_smote,
+        "smote_used": False,
     }
 
     with open(models_dir / "model_metadata.json", "w", encoding="utf-8") as f:
@@ -406,27 +347,6 @@ def _count_grid(grid) -> int:
     for v in grid.values():
         count *= len(v) if isinstance(v, list) else 1
     return count
-
-
-def _make_inference_pipeline(
-    trained_pipeline,
-    numeric_features: List[str],
-    categorical_features: List[str],
-    cfg: Dict[str, Any],
-) -> Pipeline:
-    """Build a pure sklearn Pipeline (no SMOTE) re-using the fitted preprocessor and classifier.
-
-    This is what gets saved for inference — SMOTE is only used during training.
-    """
-    from sklearn.pipeline import Pipeline as SKPipeline
-
-    steps = {}
-    for name, step in trained_pipeline.steps:
-        if name == "smote":
-            continue  # drop SMOTE from inference pipeline
-        steps[name] = step
-
-    return SKPipeline(list(steps.items()))
 
 
 def main():

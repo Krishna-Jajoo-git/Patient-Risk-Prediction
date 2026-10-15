@@ -1,38 +1,42 @@
-"""Unit tests for prediction roundtrip and input validation."""
+"""Unit tests for prediction roundtrip, batch scoring, and input validation."""
 
 import pandas as pd
 import pytest
 from src.config import load_config
-from src.predict import load_artifacts, predict_from_history, validate_input
+from src.predict import load_artifacts, predict_from_features, predict_patient, validate_input
 
 
-def test_predict_from_history_roundtrip():
-    """Verify that predict_from_history returns valid probabilities and risk labels."""
+def test_predict_patient_roundtrip():
+    """Verify that predict_patient returns valid probabilities, classifications, and clinical summaries."""
     cfg = load_config()
     model, _, _ = load_artifacts()
 
-    sample_history = pd.DataFrame({
-        "patient_id": ["TEST-01", "TEST-01", "TEST-01"],
-        "date": ["2024-01-01", "2024-02-15", "2024-03-30"],
-        "age": [58, 58, 58],
-        "gender": ["Male", "Male", "Male"],
-        "bmi": [29.5, 30.1, 30.8],
-        "systolic_bp": [138.0, 142.0, 146.0],
-        "glucose": [115.0, 122.0, 128.0],
-        "cholesterol": [210.0, 215.0, 225.0],
-        "medication_count": [2, 2, 3],
-    })
+    sample_patient = pd.DataFrame([{
+        "age": 55,
+        "gender": 2,
+        "height": 175,
+        "weight": 86.0,
+        "ap_hi": 140,
+        "ap_lo": 90,
+        "cholesterol": 2,
+        "gluc": 1,
+        "smoke": 1,
+        "alco": 0,
+        "active": 0,
+    }])
 
-    result = predict_from_history(sample_history, cfg, model)
+    result = predict_patient(sample_patient, cfg, model)
 
     assert result["prediction"] in (0, 1)
     assert 0.0 <= result["probability"] <= 1.0
-    assert result["label_text"] in ("Elevated Health Risk", "Normal / Low Risk")
     assert result["risk_level"] in ("High", "Moderate", "Low")
-    assert "systolic_bp" in result["patient_summary"]["vitals"]
+    assert "demographics" in result["patient_summary"]
+    assert "hemodynamics" in result["patient_summary"]
+    assert result["patient_summary"]["hemodynamics"]["ap_hi"] == 140.0
+    assert result["patient_summary"]["hemodynamics"]["bp_category"] == "Stage 2 HTN"
 
 
-def test_invalid_schema_returns_errors_not_exceptions():
+def test_invalid_schema_returns_errors():
     """Verify that corrupted input schema cleanly produces descriptive error list."""
     cfg = load_config()
     bad_df = pd.DataFrame({"unknown_col": [1, 2, 3]})
@@ -41,26 +45,16 @@ def test_invalid_schema_returns_errors_not_exceptions():
     assert any("Missing required column" in err for err in errors)
 
 
-def test_predict_from_history_with_missing_and_abbreviated_gender():
-    """Verify inference pipeline operates robustly with partially missing age and 'F'/'Other' gender."""
-    import numpy as np
-    cfg = load_config()
+def test_predict_batch_features():
+    """Verify batch scoring appends predictions and probabilities to all rows."""
     model, _, _ = load_artifacts()
+    batch_df = pd.DataFrame([
+        {"age": 45, "gender": 1, "height": 160, "weight": 55, "ap_hi": 110, "ap_lo": 70, "cholesterol": 1, "gluc": 1, "smoke": 0, "alco": 0, "active": 1},
+        {"age": 60, "gender": 2, "height": 178, "weight": 95, "ap_hi": 155, "ap_lo": 95, "cholesterol": 3, "gluc": 2, "smoke": 1, "alco": 1, "active": 0},
+    ])
 
-    sample_history = pd.DataFrame({
-        "patient_id": ["P-SAMPLE", "P-SAMPLE"],
-        "date": ["2021-05-01", "2021-08-15"],
-        "age": [np.nan, 62.0],
-        "gender": ["F", "F"],
-        "bmi": [27.4, 28.1],
-        "systolic_bp": [135.0, 140.0],
-        "glucose": [120.0, np.nan],
-        "cholesterol": [205.0, 210.0],
-        "medication_count": [1, 2],
-    })
-
-    result = predict_from_history(sample_history, cfg, model)
-    assert result["prediction"] in (0, 1)
-    assert 0.0 <= result["probability"] <= 1.0
-    assert result["risk_level"] in ("High", "Moderate", "Low")
-    assert result["features_used"]["age"] == 62.0
+    scored = predict_from_features(batch_df, model)
+    assert len(scored) == 2
+    assert "prediction" in scored.columns
+    assert "risk_probability" in scored.columns
+    assert "risk_level" in scored.columns

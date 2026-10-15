@@ -15,11 +15,15 @@ def load_raw(cfg: Dict[str, Any]) -> pd.DataFrame:
 
     if not csv_path.exists():
         raise FileNotFoundError(
-            f"Raw dataset file not found at: {csv_path}. "
-            "Run 'python -m src.generate_demo_data' if using demo data."
+            f"Raw dataset file not found at: {csv_path}."
         )
 
-    return pd.read_csv(csv_path)
+    delimiter = cfg["dataset"].get("delimiter", ";")
+    try:
+        return pd.read_csv(csv_path, sep=delimiter)
+    except Exception:
+        # Fallback to automatic separator detection
+        return pd.read_csv(csv_path, sep=None, engine="python")
 
 
 def validate_schema(
@@ -37,19 +41,22 @@ def validate_schema(
     """
     errors: List[str] = []
     dataset_cfg = cfg["dataset"]
-    mode = dataset_cfg["mode"]
+    mode = dataset_cfg.get("mode", "single_record")
 
-    # Required columns
-    expected_cols = []
-    if mode == "longitudinal":
-        expected_cols.append(dataset_cfg["patient_id_col"])
-        expected_cols.append(dataset_cfg["date_col"])
+    # If raw_features is specified, check against raw features
+    raw_features = dataset_cfg.get("raw_features")
+    if raw_features:
+        expected_cols = list(raw_features)
+    else:
+        expected_cols = []
+        if mode == "longitudinal":
+            expected_cols.append(dataset_cfg.get("patient_id_col", "patient_id"))
+            expected_cols.append(dataset_cfg.get("date_col", "date"))
+        expected_cols.extend(dataset_cfg.get("static_numeric", []))
+        expected_cols.extend(dataset_cfg.get("static_categorical", []))
+        expected_cols.extend(dataset_cfg.get("time_varying_numeric", []))
 
-    expected_cols.extend(dataset_cfg.get("static_numeric", []))
-    expected_cols.extend(dataset_cfg.get("static_categorical", []))
-    expected_cols.extend(dataset_cfg.get("time_varying_numeric", []))
-
-    if require_target:
+    if require_target and dataset_cfg.get("target_col"):
         expected_cols.append(dataset_cfg["target_col"])
 
     # Check missing columns
@@ -60,8 +67,8 @@ def validate_schema(
     if errors:
         return errors
 
-    # Check date column parseability
-    if mode == "longitudinal":
+    # Check date column parseability if in longitudinal mode
+    if mode == "longitudinal" and "date_col" in dataset_cfg:
         date_col = dataset_cfg["date_col"]
         try:
             pd.to_datetime(df[date_col].dropna().head(20))
@@ -69,7 +76,7 @@ def validate_schema(
             errors.append(f"Date column '{date_col}' contains unparseable dates.")
 
     # Check numeric columns have numeric-convertible values
-    num_cols = dataset_cfg.get("static_numeric", []) + dataset_cfg.get("time_varying_numeric", [])
+    num_cols = [c for c in ["height", "weight", "ap_hi", "ap_lo", "age"] if c in df.columns]
     for col in num_cols:
         non_null = df[col].dropna()
         if len(non_null) > 0:
@@ -83,11 +90,11 @@ def validate_schema(
 def get_upload_template(cfg: Dict[str, Any]) -> pd.DataFrame:
     """Generate a sample 2-row template DataFrame for user uploads."""
     dataset_cfg = cfg["dataset"]
-    mode = dataset_cfg["mode"]
+    mode = dataset_cfg.get("mode", "single_record")
 
     if mode == "longitudinal":
-        pid_col = dataset_cfg["patient_id_col"]
-        date_col = dataset_cfg["date_col"]
+        pid_col = dataset_cfg.get("patient_id_col", "patient_id")
+        date_col = dataset_cfg.get("date_col", "date")
         row1 = {
             pid_col: "P0001",
             date_col: "2021-01-15",
@@ -111,23 +118,32 @@ def get_upload_template(cfg: Dict[str, Any]) -> pd.DataFrame:
             "medication_count": 1,
         }
     else:
+        # Cardio train template
         row1 = {
-            "age": 52,
-            "gender": "M",
-            "bmi": 28.2,
-            "systolic_bp": 136.0,
-            "glucose": 115.0,
-            "cholesterol": 210.0,
-            "medication_count": 2,
+            "age": 50,           # Age in years (or days e.g. 18250)
+            "gender": 1,         # 1: Female, 2: Male
+            "height": 165,       # Height in cm
+            "weight": 68.0,      # Weight in kg
+            "ap_hi": 120,        # Systolic blood pressure (mmHg)
+            "ap_lo": 80,         # Diastolic blood pressure (mmHg)
+            "cholesterol": 1,    # 1: Normal, 2: Above normal, 3: Well above normal
+            "gluc": 1,           # 1: Normal, 2: Above normal, 3: Well above normal
+            "smoke": 0,          # 0: Non-smoker, 1: Smoker
+            "alco": 0,           # 0: Non-drinker, 1: Drinker
+            "active": 1,         # 0: Not physically active, 1: Physically active
         }
         row2 = {
-            "age": 61,
-            "gender": "F",
-            "bmi": 24.1,
-            "systolic_bp": 118.0,
-            "glucose": 92.0,
-            "cholesterol": 182.0,
-            "medication_count": 0,
+            "age": 55,
+            "gender": 2,
+            "height": 178,
+            "weight": 86.0,
+            "ap_hi": 145,
+            "ap_lo": 95,
+            "cholesterol": 2,
+            "gluc": 2,
+            "smoke": 1,
+            "alco": 1,
+            "active": 0,
         }
 
     return pd.DataFrame([row1, row2])
@@ -136,7 +152,7 @@ def get_upload_template(cfg: Dict[str, Any]) -> pd.DataFrame:
 def dataset_summary(df: pd.DataFrame, cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Compute comprehensive dataset statistics for reporting and UI."""
     dataset_cfg = cfg["dataset"]
-    mode = dataset_cfg["mode"]
+    mode = dataset_cfg.get("mode", "single_record")
     target_col = dataset_cfg.get("target_col")
 
     n_rows = len(df)
@@ -151,29 +167,32 @@ def dataset_summary(df: pd.DataFrame, cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     if mode == "longitudinal":
-        pid_col = dataset_cfg["patient_id_col"]
-        date_col = dataset_cfg["date_col"]
-        n_patients = df[pid_col].nunique()
-        counts_per_patient = df.groupby(pid_col).size()
-        min_recs = int(counts_per_patient.min()) if not counts_per_patient.empty else 0
-        max_recs = int(counts_per_patient.max()) if not counts_per_patient.empty else 0
-        mean_recs = round(float(counts_per_patient.mean()), 1) if not counts_per_patient.empty else 0.0
+        pid_col = dataset_cfg.get("patient_id_col", "patient_id")
+        date_col = dataset_cfg.get("date_col", "date")
+        if pid_col in df.columns:
+            n_patients = df[pid_col].nunique()
+            counts_per_patient = df.groupby(pid_col).size()
+            min_recs = int(counts_per_patient.min()) if not counts_per_patient.empty else 0
+            max_recs = int(counts_per_patient.max()) if not counts_per_patient.empty else 0
+            mean_recs = round(float(counts_per_patient.mean()), 1) if not counts_per_patient.empty else 0.0
 
-        dates = pd.to_datetime(df[date_col], errors="coerce").dropna()
-        date_range = (
-            f"{dates.min().strftime('%Y-%m-%d')} to {dates.max().strftime('%Y-%m-%d')}"
-            if not dates.empty else "N/A"
-        )
+            dates = pd.to_datetime(df[date_col], errors="coerce").dropna() if date_col in df.columns else pd.Series()
+            date_range = (
+                f"{dates.min().strftime('%Y-%m-%d')} to {dates.max().strftime('%Y-%m-%d')}"
+                if not dates.empty else "N/A"
+            )
 
-        summary.update({
-            "n_patients": n_patients,
-            "records_per_patient": {
-                "min": min_recs,
-                "max": max_recs,
-                "mean": mean_recs,
-            },
-            "date_range": date_range,
-        })
+            summary.update({
+                "n_patients": n_patients,
+                "records_per_patient": {
+                    "min": min_recs,
+                    "max": max_recs,
+                    "mean": mean_recs,
+                },
+                "date_range": date_range,
+            })
+    else:
+        summary["n_patients"] = n_rows
 
     if target_col and target_col in df.columns:
         counts = df[target_col].value_counts().to_dict()

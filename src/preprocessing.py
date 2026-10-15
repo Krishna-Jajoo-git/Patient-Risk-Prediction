@@ -15,10 +15,10 @@ def clean_data(df: pd.DataFrame, cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dic
     """Clean dataset according to validation rules without data leakage.
 
     Steps:
-    1. Parse dates, strip whitespace, and standardize categorical casing.
-    2. Drop exact duplicate rows.
+    1. Drop exact duplicate rows.
+    2. Handle transposed blood pressures (where systolic < diastolic due to data entry transposition).
     3. Set values outside valid_ranges to NaN (impossible-value handling).
-    4. Compute an IQR outlier report per numeric column (count only; no silent row deletion).
+    4. Compute an IQR outlier report per numeric column.
 
     Args:
         df: Input raw DataFrame.
@@ -29,49 +29,41 @@ def clean_data(df: pd.DataFrame, cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dic
     """
     cleaned = df.copy()
     dataset_cfg = cfg["dataset"]
-    mode = dataset_cfg["mode"]
+    mode = dataset_cfg.get("mode", "single_record")
     valid_ranges = dataset_cfg.get("valid_ranges", {})
 
     report: Dict[str, Any] = {
         "initial_rows": len(cleaned),
         "initial_missing": cleaned.isna().sum().to_dict(),
         "duplicates_removed": 0,
+        "bp_transpositions_fixed": 0,
         "impossible_values_nulled": {},
         "iqr_outliers": {},
     }
 
-    # Step 1: Parse dates & standardise text
-    if mode == "longitudinal":
-        date_col = dataset_cfg["date_col"]
-        if date_col in cleaned.columns:
-            cleaned[date_col] = pd.to_datetime(cleaned[date_col], errors="coerce")
-
-    cat_cols = dataset_cfg.get("static_categorical", [])
-    gender_synonyms = {
-        "m": "M",
-        "male": "M",
-        "f": "F",
-        "female": "F",
-        "other": "Other",
-    }
-    for col in cat_cols:
-        if col in cleaned.columns:
-            if col.lower() == "gender":
-                cleaned[col] = cleaned[col].apply(
-                    lambda x: gender_synonyms.get(str(x).strip().lower(), str(x).strip().capitalize())
-                    if pd.notna(x)
-                    else np.nan
-                )
-            else:
-                cleaned[col] = cleaned[col].apply(
-                    lambda x: str(x).strip().capitalize() if pd.notna(x) else np.nan
-                )
-
-    # Step 2: Drop exact duplicates
+    # Step 1: Drop exact duplicates
     dup_count = int(cleaned.duplicated().sum())
     if dup_count > 0:
         cleaned = cleaned.drop_duplicates().reset_index(drop=True)
     report["duplicates_removed"] = dup_count
+
+    # Step 2: Fix transposed blood pressures (e.g. ap_hi=80, ap_lo=120)
+    if "ap_hi" in cleaned.columns and "ap_lo" in cleaned.columns:
+        transposed_mask = (
+            (cleaned["ap_hi"] > 0)
+            & (cleaned["ap_lo"] > 0)
+            & (cleaned["ap_hi"] < cleaned["ap_lo"])
+            & (cleaned["ap_lo"] >= 70)
+            & (cleaned["ap_lo"] <= 240)
+            & (cleaned["ap_hi"] >= 40)
+            & (cleaned["ap_hi"] <= 160)
+        )
+        n_transposed = int(transposed_mask.sum())
+        if n_transposed > 0:
+            temp = cleaned.loc[transposed_mask, "ap_hi"].copy()
+            cleaned.loc[transposed_mask, "ap_hi"] = cleaned.loc[transposed_mask, "ap_lo"]
+            cleaned.loc[transposed_mask, "ap_lo"] = temp
+            report["bp_transpositions_fixed"] = n_transposed
 
     # Step 3: Validate ranges (impossible-value handling -> NaN)
     for col, (low, high) in valid_ranges.items():
@@ -83,22 +75,27 @@ def clean_data(df: pd.DataFrame, cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dic
             if num_invalid > 0:
                 cleaned.loc[invalid_mask, col] = np.nan
 
-    # Step 4: IQR outlier report per numeric column (flagging only)
-    num_cols = dataset_cfg.get("static_numeric", []) + dataset_cfg.get("time_varying_numeric", [])
+    # Ensure ap_hi >= ap_lo after range check
+    if "ap_hi" in cleaned.columns and "ap_lo" in cleaned.columns:
+        invalid_bp_order = cleaned["ap_hi"] < cleaned["ap_lo"]
+        if invalid_bp_order.sum() > 0:
+            cleaned.loc[invalid_bp_order, ["ap_hi", "ap_lo"]] = np.nan
+
+    # Step 4: IQR outlier report per numeric column
+    num_cols = [c for c in ["height", "weight", "ap_hi", "ap_lo", "age"] if c in cleaned.columns]
     for col in num_cols:
-        if col in cleaned.columns:
-            series = cleaned[col].dropna()
-            if len(series) > 4:
-                q25 = series.quantile(0.25)
-                q75 = series.quantile(0.75)
-                iqr = q75 - q25
-                lower_bound = q25 - 1.5 * iqr
-                upper_bound = q75 + 1.5 * iqr
-                outliers = int(((series < lower_bound) | (series > upper_bound)).sum())
-                report["iqr_outliers"][col] = {
-                    "count": outliers,
-                    "bounds": [round(float(lower_bound), 2), round(float(upper_bound), 2)],
-                }
+        series = cleaned[col].dropna()
+        if len(series) > 4:
+            q25 = series.quantile(0.25)
+            q75 = series.quantile(0.75)
+            iqr = q75 - q25
+            lower_bound = q25 - 1.5 * iqr
+            upper_bound = q75 + 1.5 * iqr
+            outliers = int(((series < lower_bound) | (series > upper_bound)).sum())
+            report["iqr_outliers"][col] = {
+                "count": outliers,
+                "bounds": [round(float(lower_bound), 2), round(float(upper_bound), 2)],
+            }
 
     report["final_rows"] = len(cleaned)
     report["final_missing"] = cleaned.isna().sum().to_dict()

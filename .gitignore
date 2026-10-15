@@ -26,11 +26,14 @@ Thumbs.db
 .env
 
 # Raw data policy:
-# Track synthetic demo data for out-of-the-box execution
-# Ignore any user-uploaded or private large datasets in data/raw/
+# Track cardio_train.csv for out-of-the-box execution
 data/raw/*
-!data/raw/demo_longitudinal.csv
+!data/raw/cardio_train.csv
 !data/raw/README.md
+
+# Scratch & temporary ingestion directories
+scratch/
+new data/
 
 # Project Information Document
 info_document

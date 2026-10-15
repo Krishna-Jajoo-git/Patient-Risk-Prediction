@@ -84,23 +84,25 @@ pip install -r requirements.txt
 ---
 
 ### A.6 Train and Compile the Machine Learning Pipeline
-Before launching the web app for the first time, compile the data preprocessing pipeline and train the benchmark models:
+Before launching the web app, compile the data preprocessing pipeline and train the benchmark models:
 
 ```bash
-python src/train.py
+python -m src.train
 ```
 
 **What this command does:**
-1. Loads the longitudinal dataset from `data/raw/demo_longitudinal.csv`.
-2. Validates schema and applies biological plausibility filters.
-3. Computes longitudinal trajectory features (latest, baseline delta, variance, temporal spans).
-4. Performs a zero-leakage `GroupShuffleSplit` on `patient_id`.
-5. Trains and cross-validates 4 candidate models: **KNN**, **Decision Tree**, **Logistic Regression**, and **Random Forest**.
+1. Loads the 70,000-record cardiovascular dataset from `data/raw/cardio_train.csv`.
+2. Validates schema and applies biological plausibility filters and transposition corrections.
+3. Computes cardiovascular domain features (BMI, pulse pressure, MAP, categories, non-linear interactions).
+4. Performs a stratified holdout split (56,000 train / 14,000 test).
+5. Trains and cross-validates 4 candidate models: **Random Forest**, **Logistic Regression**, **Decision Tree**, and **K-Nearest Neighbours**.
 6. Selects the champion model based on **F1-Score** and serializes artifacts to:
    * `models/best_model.joblib`
-   * `reports/benchmark_results.json`
-   * `reports/roc_curve.png`
-   * `reports/confusion_matrix_*.png`
+   * `models/model_metadata.json`
+   * `models/metrics.json`
+   * `reports/figures/roc_curves.png`
+   * `reports/figures/cm_*.png`
+   * `reports/figures/feature_importance.png`
 
 ---
 

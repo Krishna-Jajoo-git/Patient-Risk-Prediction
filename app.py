@@ -1,11 +1,11 @@
-"""Streamlit Web Application: Patient Health Risk Prediction.
+"""Streamlit Web Application: Cardiovascular Disease Risk Prediction Platform.
 
-Academic Machine-Learning Interface for Longitudinal and Single-Record Patient Risk Analysis.
-Features Clinical Slate Dark Theme, Interactive Risk Gauges, Physiological Reference Bands,
-and Comparative Model Benchmarks.
+Academic & Clinical Machine-Learning Interface for Cardiovascular Disease Stratification.
+Evaluated on the 70,000-patient CardioTrain cohort with 4 classical architectures:
+Random Forest, Logistic Regression, Decision Tree, and K-Nearest Neighbours.
 """
 
-import io
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
@@ -19,13 +19,13 @@ from src.data_loader import get_upload_template
 from src.predict import (
     load_artifacts,
     predict_from_features,
-    predict_from_history,
+    predict_patient,
     validate_input,
 )
 
 # Page configuration
 st.set_page_config(
-    page_title="CardioMetabolic Risk Stratification System",
+    page_title="Cardiovascular Disease Risk Prediction Platform",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -240,7 +240,7 @@ CUSTOM_CSS = """
         background: rgba(15, 23, 42, 0.7);
         border: 1px solid rgba(255, 255, 255, 0.07);
         border-radius: 12px;
-        padding: 1rem 1.1rem;
+        padding: 1.1rem 1.2rem;
         height: 100%;
         display: flex;
         flex-direction: column;
@@ -294,23 +294,79 @@ CUSTOM_CSS = """
         gap: 0.25rem;
         font-size: 0.74rem;
         font-weight: 600;
-        padding: 0.18rem 0.5rem;
-        border-radius: 4px;
+        padding: 0.2rem 0.55rem;
+        border-radius: 6px;
         width: fit-content;
         margin-bottom: 0.45rem;
     }
 
     .delta-red { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
     .delta-green { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .delta-neutral { background: rgba(100, 116, 139, 0.15); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3); }
+    .delta-neutral { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .delta-slate { background: rgba(100, 116, 139, 0.15); color: #cbd5e1; border: 1px solid rgba(100, 116, 139, 0.3); }
 
     .vital-ref-tag {
-        font-size: 0.72rem;
-        color: #64748b;
+        font-size: 0.74rem;
+        color: #94a3b8;
         border-top: 1px dashed rgba(255, 255, 255, 0.08);
         padding-top: 0.4rem;
         margin-top: 0.2rem;
     }
+
+    /* Consultation Summary & Care Plan */
+    .summary-card {
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 1.2rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
+    }
+
+    .plan-card {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 1.15rem;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.25);
+    }
+
+    .plan-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 700;
+        font-size: 0.98rem;
+        color: #f8fafc;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.45rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .plan-item {
+        font-size: 0.86rem;
+        color: #cbd5e1;
+        line-height: 1.55;
+        margin-bottom: 0.55rem;
+    }
+
+    .driver-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.3rem 0.65rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin: 0.2rem 0.3rem 0.2rem 0;
+    }
+    .driver-chip-red { background: rgba(239, 68, 68, 0.18); color: #fecdd3; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .driver-chip-amber { background: rgba(245, 158, 11, 0.18); color: #fef3c7; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .driver-chip-green { background: rgba(16, 185, 129, 0.18); color: #a7f3d0; border: 1px solid rgba(16, 185, 129, 0.4); }
 
     /* Model Champion Spotlight Banner */
     .champion-banner {
@@ -393,81 +449,10 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
 # ==============================================================================
-# CLINICAL REFERENCE DICTIONARIES & HELPER UTILITIES
+# RISK GAUGE & VISUALIZATION BUILDERS
 # ==============================================================================
-PHYSIOLOGICAL_RANGES = {
-    "systolic_bp": {"y0": 90, "y1": 120, "label": "Normal BP (90-120)", "unit": "mmHg"},
-    "glucose": {"y0": 70, "y1": 100, "label": "Normal Fasting (70-100)", "unit": "mg/dL"},
-    "cholesterol": {"y0": 130, "y1": 200, "label": "Desirable (<200)", "unit": "mg/dL"},
-    "bmi": {"y0": 18.5, "y1": 24.9, "label": "Normal BMI (18.5-24.9)", "unit": "kg/m²"},
-    "medication_count": {"y0": 0, "y1": 2, "label": "Low Regimen (0-2)", "unit": "meds"},
-}
-
-VITAL_ICONS = {
-    "systolic_bp": "🩺",
-    "glucose": "🩸",
-    "cholesterol": "🧪",
-    "bmi": "⚖️",
-    "medication_count": "💊",
-}
-
-
-def get_clinical_classification(vital_name: str, value: float) -> Tuple[str, str, str]:
-    """Return clinical tag, delta status class, and clinical reference text."""
-    if vital_name == "systolic_bp":
-        ref = "Clinical Target: < 120 mmHg"
-        if value < 120:
-            return "Normal (<120)", "delta-green", ref
-        elif value < 130:
-            return "Elevated (120-129)", "delta-neutral", ref
-        elif value < 140:
-            return "Stage 1 HTN (130-139)", "delta-red", ref
-        else:
-            return "Stage 2 HTN (≥140)", "delta-red", ref
-
-    elif vital_name == "glucose":
-        ref = "Clinical Target: 70-99 mg/dL"
-        if value < 100:
-            return "Normal (<100)", "delta-green", ref
-        elif value < 126:
-            return "Impaired / Prediabetic (100-125)", "delta-neutral", ref
-        else:
-            return "Diabetic Range (≥126)", "delta-red", ref
-
-    elif vital_name == "cholesterol":
-        ref = "Clinical Target: < 200 mg/dL"
-        if value < 200:
-            return "Desirable (<200)", "delta-green", ref
-        elif value < 240:
-            return "Borderline (200-239)", "delta-neutral", ref
-        else:
-            return "High Risk (≥240)", "delta-red", ref
-
-    elif vital_name == "bmi":
-        ref = "Clinical Target: 18.5 - 24.9 kg/m²"
-        if value < 18.5:
-            return "Underweight (<18.5)", "delta-neutral", ref
-        elif value < 25.0:
-            return "Normal Weight", "delta-green", ref
-        elif value < 30.0:
-            return "Overweight (25-29.9)", "delta-neutral", ref
-        else:
-            return "Obese (≥30)", "delta-red", ref
-
-    elif vital_name == "medication_count":
-        ref = "Standard Regimen: 0 - 3 meds"
-        if value <= 2:
-            return "Low Burden (0-2)", "delta-green", ref
-        elif value <= 4:
-            return "Moderate (3-4)", "delta-neutral", ref
-        else:
-            return "Polypharmacy (≥5)", "delta-red", ref
-
-    return "Recorded", "delta-neutral", "Reference: N/A"
-
-
 def create_risk_gauge(prob: float, risk_level: str) -> go.Figure:
-    """Create a semi-circular clinical risk gauge."""
+    """Create a semi-circular clinical cardiovascular risk gauge."""
     pct = round(prob * 100.0, 1)
     bar_color = (
         "#f43f5e"
@@ -488,7 +473,7 @@ def create_risk_gauge(prob: float, risk_level: str) -> go.Figure:
                 },
             },
             title={
-                "text": "<b>Deterioration Probability</b><br><span style='font-size:12px;color:#94a3b8;'>Model Risk Estimate</span>",
+                "text": "<b>CVD Probability</b><br><span style='font-size:12px;color:#94a3b8;'>Model Risk Estimate</span>",
                 "font": {
                     "size": 13,
                     "color": "#cbd5e1",
@@ -500,17 +485,17 @@ def create_risk_gauge(prob: float, risk_level: str) -> go.Figure:
                     "range": [0, 100],
                     "tickwidth": 1,
                     "tickcolor": "#475569",
-                    "tickvals": [0, 20, 40, 65, 80, 100],
-                    "ticktext": ["0%", "20%", "40% (Mod)", "65% (High)", "80%", "100%"],
+                    "tickvals": [0, 20, 35, 60, 80, 100],
+                    "ticktext": ["0%", "20%", "35% (Mod)", "60% (High)", "80%", "100%"],
                     "tickfont": {"size": 10, "color": "#94a3b8"},
                 },
                 "bar": {"color": bar_color, "thickness": 0.28},
                 "bgcolor": "rgba(255, 255, 255, 0.03)",
                 "borderwidth": 0,
                 "steps": [
-                    {"range": [0, 40], "color": "rgba(16, 185, 129, 0.20)"},
-                    {"range": [40, 65], "color": "rgba(245, 158, 11, 0.20)"},
-                    {"range": [65, 100], "color": "rgba(244, 63, 94, 0.20)"},
+                    {"range": [0, 35], "color": "rgba(16, 185, 129, 0.20)"},
+                    {"range": [35, 60], "color": "rgba(245, 158, 11, 0.20)"},
+                    {"range": [60, 100], "color": "rgba(244, 63, 94, 0.20)"},
                 ],
                 "threshold": {
                     "line": {"color": "#ffffff", "width": 3},
@@ -545,12 +530,11 @@ def create_model_comparison_bar_chart(metrics: Dict[str, Any]) -> go.Figure:
                 })
     df = pd.DataFrame(records)
 
-    # Color palette matching clinical dark slate
     colors = {
-        "Random Forest": "#38bdf8",       # Cyan (Champion)
-        "Logistic Regression": "#818cf8",  # Indigo
-        "K-Nearest Neighbours": "#34d399", # Mint
-        "Decision Tree": "#fbbf24",        # Amber
+        "Random Forest": "#38bdf8",
+        "Logistic Regression": "#818cf8",
+        "Decision Tree": "#fbbf24",
+        "K-Nearest Neighbours": "#34d399",
     }
 
     fig = px.bar(
@@ -623,15 +607,15 @@ def main():
         """
         <div class="app-header-container">
             <div class="app-title-group">
-                <h1>🩺 CardioMetabolic Patient Risk Predictor</h1>
-                <p>Longitudinal Multi-Visit Clinical Machine Learning Diagnostic Platform</p>
+                <h1>🩺 Cardiovascular Disease Risk Prediction Platform</h1>
+                <p>Supervised Machine Learning Diagnostic Screening • CardioTrain Real Cohort (N=70,000)</p>
             </div>
             <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
                 <span class="badge-chip badge-chip-cyan">
                     <span class="pulse-dot"></span> Production Engine Active
                 </span>
                 <span class="badge-chip badge-chip-emerald">
-                    🔬 Research Cohort (N=3,000)
+                    🔬 Verified Cohort (N=70,000)
                 </span>
             </div>
         </div>
@@ -644,10 +628,10 @@ def main():
         """
         <div class="notice-card">
             <div>
-                <strong>Academic ML Research Demonstration:</strong> Supervised classification for longitudinal deterioration screening.
-                Model outputs are statistical posterior estimates and do not substitute for licensed clinical judgment.
+                <strong>Clinical ML Diagnostic Demonstration:</strong> Supervised classification for cardiovascular disease screening based on physiological, hemodynamic, and lifestyle indicators.
+                Outputs are calibrated statistical probabilities and do not substitute for licensed clinical consultation.
             </div>
-            <span style="font-size: 0.76rem; color: #64748b; font-weight: 600;">CLASSICAL ML BENCHMARK</span>
+            <span style="font-size: 0.76rem; color: #64748b; font-weight: 600;">CARDIOTRAIN BENCHMARK</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -664,9 +648,12 @@ def main():
         unsafe_allow_html=True,
     )
 
-    dataset_mode = cfg["dataset"]["mode"]
     best_name = metadata.get("best_model_name", "Random Forest")
-    best_f1 = metrics.get(metadata.get("best_model_key", "random_forest"), {}).get("test_metrics", {}).get("f1", 0.811)
+    best_key = metadata.get("best_model_key", "random_forest")
+    best_m = metrics.get(best_key, {}).get("test_metrics", {})
+    best_f1 = best_m.get("f1", 0.7235)
+    best_acc = best_m.get("accuracy", 0.7328)
+    best_roc = best_m.get("roc_auc", 0.7972)
 
     st.sidebar.markdown(
         f"""
@@ -674,27 +661,45 @@ def main():
             <div style="color: #94a3b8; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 4px;">Champion Estimator</div>
             <div style="font-size: 1.05rem; font-weight: 700; color: #38bdf8; margin-bottom: 8px;">{best_name} ⭐</div>
             <div style="display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; margin-top: 4px;">
-                <span style="color: #94a3b8;">Holdout F1 Score:</span>
+                <span style="color: #94a3b8;">Holdout F1:</span>
                 <span style="font-weight: 600; color: #34d399;">{best_f1:.4f}</span>
             </div>
             <div style="display: flex; justify-content: space-between; margin-top: 4px;">
-                <span style="color: #94a3b8;">Analysis Mode:</span>
-                <span style="font-weight: 600; color: #cbd5e1;">{dataset_mode.capitalize()}</span>
+                <span style="color: #94a3b8;">Accuracy:</span>
+                <span style="font-weight: 600; color: #cbd5e1;">{best_acc * 100:.2f}%</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                <span style="color: #94a3b8;">ROC-AUC:</span>
+                <span style="font-weight: 600; color: #818cf8;">{best_roc:.4f}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                <span style="color: #94a3b8;">Cohort Patients:</span>
+                <span style="font-weight: 600; color: #cbd5e1;">70,000</span>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+    assessment_mode = st.sidebar.radio(
+        "Assessment Mode",
+        (
+            "🩺 Interactive Patient Form",
+            "👥 Cohort Patient Explorer",
+            "📁 Batch CSV Upload",
+        ),
+        index=0,
+    )
+
     # Main Workspace Tabs
     tab_pred, tab_perf, tab_about = st.tabs([
         "🩺 Patient Risk Assessment",
         "📊 Model Benchmarking & Performance",
-        "ℹ️ Clinical Methodology & Viva Notes",
+        "ℹ️ Clinical Methodology & System Architecture",
     ])
 
     with tab_pred:
-        render_prediction_tab(cfg, model, metadata)
+        render_prediction_tab(cfg, model, metadata, assessment_mode)
 
     with tab_perf:
         render_performance_tab(cfg, metrics, metadata)
@@ -706,189 +711,352 @@ def main():
 # ==============================================================================
 # TAB 1: PATIENT RISK ASSESSMENT
 # ==============================================================================
-def render_prediction_tab(cfg: Dict[str, Any], model: Any, metadata: Dict[str, Any]):
-    """Main patient prediction interface."""
-    dataset_mode = cfg["dataset"]["mode"]
+def render_prediction_tab(
+    cfg: Dict[str, Any], model: Any, metadata: Dict[str, Any], assessment_mode: str
+):
+    """Patient risk assessment tab with interactive form, demo patients, and batch CSV upload."""
 
-    if dataset_mode == "longitudinal":
-        input_mode = st.sidebar.radio(
-            "Input Mode",
-            ("Select Existing Patient", "Upload Patient History (CSV)"),
-            index=0,
-        )
+    # --------------------------------------------------------------------------
+    # MODE 1: INTERACTIVE PATIENT FORM
+    # --------------------------------------------------------------------------
+    if assessment_mode == "🩺 Interactive Patient Form":
+        st.subheader("1. Enter Patient Physiological & Lifestyle Biomarkers")
+        st.caption("Provide current patient clinical measurements to compute real-time cardiovascular risk probability.")
 
-        patient_history_df = None
+        with st.form("interactive_patient_form"):
+            col_demo, col_hemo = st.columns(2)
 
-        if input_mode == "Select Existing Patient":
-            demo_path = PROJECT_ROOT / "data" / "processed" / "demo_patients.csv"
+            with col_demo:
+                st.markdown("##### 👤 Demographics & Anthropometrics")
+                c1, c2 = st.columns(2)
+                with c1:
+                    age_years = st.number_input("Age (Years)", min_value=20.0, max_value=95.0, value=52.0, step=1.0)
+                with c2:
+                    gender_choice = st.selectbox("Biological Sex", ["Female", "Male"], index=0)
+                    gender_code = 1 if gender_choice == "Female" else 2
 
-            if demo_path.exists():
-                all_demo = pd.read_csv(demo_path)
-                pid_col = cfg["dataset"]["patient_id_col"]
-                patient_ids = sorted(list(all_demo[pid_col].unique()))
+                c3, c4 = st.columns(2)
+                with c3:
+                    height_cm = st.number_input("Height (cm)", min_value=120.0, max_value=220.0, value=165.0, step=1.0)
+                with c4:
+                    weight_kg = st.number_input("Weight (kg)", min_value=35.0, max_value=200.0, value=72.0, step=0.5)
 
-                col_sel, col_desc = st.columns([2, 3])
-                with col_sel:
-                    selected_pid = st.selectbox("Choose Validation Cohort Patient ID", patient_ids)
-                with col_desc:
-                    p_recs = all_demo[all_demo[pid_col] == selected_pid].sort_values(
-                        by=cfg["dataset"]["date_col"]
-                    ).reset_index(drop=True)
-                    st.write("")
-                    st.caption(
-                        f"Loaded **{len(p_recs)}** chronological visits for patient **{selected_pid}**."
-                    )
-
-                patient_history_df = p_recs
-
-                # Display Patient Demographics Strip Card
-                age_series = p_recs["age"].dropna() if "age" in p_recs.columns else pd.Series()
-                age_val = f"{int(age_series.iloc[-1])}" if not age_series.empty else "N/A"
-                gender_series = p_recs["gender"].dropna() if "gender" in p_recs.columns else pd.Series()
-                gender_val = str(gender_series.iloc[-1]) if not gender_series.empty else "N/A"
-                outcome_truth = (
-                    "Adverse Event (1)"
-                    if p_recs["outcome"].iloc[0] == 1
-                    else "Normal / Safe (0)"
+                # Real-time BMI indicator preview
+                calc_bmi = weight_kg / ((height_cm / 100.0) ** 2)
+                bmi_class = (
+                    "Underweight (<18.5)" if calc_bmi < 18.5
+                    else ("Normal (18.5-24.9)" if calc_bmi < 25.0
+                          else ("Overweight (25-29.9)" if calc_bmi < 30.0 else "Obese (≥30)"))
                 )
-                date_min = p_recs[cfg["dataset"]["date_col"]].iloc[0]
-                date_max = p_recs[cfg["dataset"]["date_col"]].iloc[-1]
-
+                bmi_color = "#34d399" if 18.5 <= calc_bmi < 25.0 else ("#fbbf24" if calc_bmi < 30 else "#f87171")
                 st.markdown(
                     f"""
-                    <div class="patient-profile-card">
-                        <div class="profile-item">
-                            <span class="profile-label">Patient ID</span>
-                            <span class="profile-value" style="color: #38bdf8;">{selected_pid}</span>
-                        </div>
-                        <div class="profile-item">
-                            <span class="profile-label">Age / Sex</span>
-                            <span class="profile-value">{age_val} yrs / {gender_val}</span>
-                        </div>
-                        <div class="profile-item">
-                            <span class="profile-label">Visits on Record</span>
-                            <span class="profile-value">{len(p_recs)} visits</span>
-                        </div>
-                        <div class="profile-item">
-                            <span class="profile-label">Observation Window</span>
-                            <span class="profile-value" style="font-size: 0.95rem;">{date_min} → {date_max}</span>
-                        </div>
-                        <div class="profile-item">
-                            <span class="profile-label">Cohort Ground Truth</span>
-                            <span class="profile-value" style="color: {'#f87171' if p_recs['outcome'].iloc[0] == 1 else '#34d399'}; font-size: 0.95rem;">
-                                {outcome_truth}
-                            </span>
-                        </div>
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 8px 12px; margin-top: 8px;">
+                        <span style="font-size: 0.8rem; color: #94a3b8;">Calculated BMI: </span>
+                        <strong style="color: #f8fafc; font-size: 0.95rem;">{calc_bmi:.1f} kg/m²</strong>
+                        <span style="font-size: 0.78rem; color: {bmi_color}; margin-left: 8px; font-weight: 600;">[{bmi_class}]</span>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
-            else:
-                st.warning("`data/processed/demo_patients.csv` not found. Please upload a CSV instead.")
+            with col_hemo:
+                st.markdown("##### 🩺 Hemodynamics & Blood Pressure")
+                c5, c6 = st.columns(2)
+                with c5:
+                    ap_hi = st.number_input("Systolic Blood Pressure (ap_hi, mmHg)", min_value=70.0, max_value=240.0, value=125.0, step=1.0)
+                with c6:
+                    ap_lo = st.number_input("Diastolic Blood Pressure (ap_lo, mmHg)", min_value=40.0, max_value=160.0, value=80.0, step=1.0)
 
-        else:
-            st.subheader("1. Upload Longitudinal Patient History")
-            col_up, col_dl = st.columns([3, 1])
+                # Real-time Hemodynamic preview
+                pulse_press = ap_hi - ap_lo
+                map_val = ap_lo + pulse_press / 3.0
+                bp_stage = (
+                    "Crisis (≥180)" if ap_hi >= 180 or ap_lo >= 120
+                    else ("Stage 2 HTN (≥140/90)" if ap_hi >= 140 or ap_lo >= 90
+                          else ("Stage 1 HTN (130-139)" if ap_hi >= 130 or ap_lo >= 80
+                                else ("Elevated (120-129)" if ap_hi >= 120 and ap_lo < 80 else "Normal (<120/80)")))
+                )
+                bp_color = "#34d399" if ap_hi < 120 and ap_lo < 80 else ("#fbbf24" if ap_hi < 140 and ap_lo < 90 else "#f87171")
 
-            with col_dl:
-                st.write("")
-                st.write("")
-                template_df = get_upload_template(cfg)
-                template_csv = template_df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="📥 Download Template",
-                    data=template_csv,
-                    file_name="patient_history_template.csv",
-                    mime="text/csv",
-                    use_container_width=True,
+                st.markdown(
+                    f"""
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 8px 12px; margin-top: 8px;">
+                        <span style="font-size: 0.8rem; color: #94a3b8;">Pulse Pressure: </span>
+                        <strong style="color: #f8fafc; font-size: 0.95rem;">{pulse_press:.0f} mmHg</strong> • 
+                        <span style="font-size: 0.8rem; color: #94a3b8;">MAP: </span>
+                        <strong style="color: #f8fafc; font-size: 0.95rem;">{map_val:.1f} mmHg</strong>
+                        <div style="font-size: 0.78rem; color: {bp_color}; margin-top: 4px; font-weight: 600;">AHA Classification: {bp_stage}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
 
-            with col_up:
-                uploaded_file = st.file_uploader(
-                    "Upload patient visit log (CSV format)", type=["csv"]
-                )
+            st.write("")
+            col_meta, col_life = st.columns(2)
 
-            if uploaded_file is not None:
+            with col_meta:
+                st.markdown("##### 🧪 Metabolic Status")
+                chol_options = {
+                    "1: Normal (< 200 mg/dL)": 1,
+                    "2: Above Normal (200 - 239 mg/dL)": 2,
+                    "3: Well Above Normal (≥ 240 mg/dL)": 3,
+                }
+                gluc_options = {
+                    "1: Normal (< 100 mg/dL)": 1,
+                    "2: Above Normal (100 - 125 mg/dL)": 2,
+                    "3: Well Above Normal (≥ 126 mg/dL)": 3,
+                }
+                c7, c8 = st.columns(2)
+                with c7:
+                    chol_sel = st.selectbox("Serum Cholesterol Level", list(chol_options.keys()), index=0)
+                    chol_code = chol_options[chol_sel]
+                with c8:
+                    gluc_sel = st.selectbox("Fasting Glucose Level", list(gluc_options.keys()), index=0)
+                    gluc_code = gluc_options[gluc_sel]
+
+            with col_life:
+                st.markdown("##### 🏃 Lifestyle & Behavioral Factors")
+                c9, c10, c11 = st.columns(3)
+                with c9:
+                    smoke_choice = st.selectbox("Smoking Status", ["Non-smoker (0)", "Smoker (1)"], index=0)
+                    smoke_code = 1 if "1" in smoke_choice else 0
+                with c10:
+                    alco_choice = st.selectbox("Alcohol Intake", ["Non-drinker (0)", "Drinker (1)"], index=0)
+                    alco_code = 1 if "1" in alco_choice else 0
+                with c11:
+                    act_choice = st.selectbox("Physical Activity", ["Active (1)", "Sedentary (0)"], index=0)
+                    act_code = 1 if "1" in act_choice else 0
+
+            st.write("")
+            submitted = st.form_submit_button("🚀 Compute Cardiovascular Disease Risk", type="primary", use_container_width=True)
+
+        if submitted:
+            patient_record = {
+                "age": age_years,
+                "gender": gender_code,
+                "height": height_cm,
+                "weight": weight_kg,
+                "ap_hi": ap_hi,
+                "ap_lo": ap_lo,
+                "cholesterol": chol_code,
+                "gluc": gluc_code,
+                "smoke": smoke_code,
+                "alco": alco_code,
+                "active": act_code,
+            }
+            patient_df = pd.DataFrame([patient_record])
+            with st.spinner("Processing biomarkers and executing inference pipeline..."):
                 try:
-                    raw_upload = pd.read_csv(uploaded_file)
-                    errs = validate_input(raw_upload, cfg)
-                    if errs:
-                        st.error("Uploaded file has schema issues:")
-                        for err in errs:
-                            st.write(f"- {err}")
-                    else:
-                        pid_col = cfg["dataset"]["patient_id_col"]
-                        unique_pids = raw_upload[pid_col].unique()
-                        if len(unique_pids) > 1:
-                            target_pid = st.selectbox(
-                                "Multiple patients detected. Select patient ID to analyze:",
-                                unique_pids,
-                            )
-                            patient_history_df = raw_upload[
-                                raw_upload[pid_col] == target_pid
-                            ].copy()
-                        else:
-                            patient_history_df = raw_upload.copy()
-                        st.success(
-                            f"Successfully loaded {len(patient_history_df)} records for {patient_history_df[pid_col].iloc[0]}"
-                        )
+                    res = predict_patient(patient_df, cfg, model)
+                    display_patient_results(res, patient_df, cfg)
                 except Exception as e:
-                    st.error(f"Error parsing CSV: {e}")
+                    st.error(f"Inference failed: {e}")
 
-        # Render Patient History Table and Analyze Button
-        if patient_history_df is not None and not patient_history_df.empty:
-            with st.expander("📋 Inspect Raw Chronological Visit Records", expanded=False):
-                st.dataframe(patient_history_df, use_container_width=True)
+    # --------------------------------------------------------------------------
+    # MODE 2: COHORT PATIENT EXPLORER
+    # --------------------------------------------------------------------------
+    elif assessment_mode == "👥 Cohort Patient Explorer":
+        st.subheader("1. Select Real Holdout Test Patient")
+        st.caption("Inspect authentic patient profiles from the 14,000-patient holdout validation set and compare predictions to clinical ground truth.")
 
-            if st.button("🚀 Analyze Patient Risk Trajectory", type="primary", use_container_width=True):
-                with st.spinner("Executing feature engineering & inference pipeline..."):
-                    try:
-                        res = predict_from_history(patient_history_df, cfg, model)
-                        display_patient_results(res, patient_history_df, cfg)
-                    except Exception as e:
-                        st.error(f"Prediction failed: {e}")
+        demo_path = PROJECT_ROOT / "data" / "processed" / "demo_patients.csv"
+        if not demo_path.exists():
+            st.warning("Validation cohort file `data/processed/demo_patients.csv` not found. Please train models to generate it.")
+            return
 
+        all_demo = pd.read_csv(demo_path)
+        patient_ids = all_demo["id"].tolist()
+
+        c_sel, c_info = st.columns([2, 3])
+        with c_sel:
+            selected_id = st.selectbox("Select Patient Record (ID)", patient_ids)
+        with c_info:
+            selected_row = all_demo[all_demo["id"] == selected_id].iloc[0]
+            truth = int(selected_row["cardio"])
+            truth_label = "Presence of Cardiovascular Disease (1)" if truth == 1 else "Absence of CVD / Healthy (0)"
+            truth_color = "#f87171" if truth == 1 else "#34d399"
+            st.write("")
+            st.markdown(
+                f"""
+                <div style="padding-top: 4px;">
+                    <span style="font-size: 0.8rem; color: #94a3b8;">Recorded Clinical Outcome: </span>
+                    <strong style="color: {truth_color}; font-size: 0.95rem;">{truth_label}</strong>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # Patient Profile Strip
+        age_in_years = round(selected_row["age"] / 365.25, 1) if selected_row["age"] > 120 else round(selected_row["age"], 1)
+        gender_str = "Female" if str(selected_row["gender"]) in ("1", "1.0", "F") else "Male"
+        bp_str = f"{int(selected_row['ap_hi'])} / {int(selected_row['ap_lo'])} mmHg"
+        bmi_calc = selected_row["weight"] / ((selected_row["height"] / 100.0) ** 2)
+
+        st.markdown(
+            f"""
+            <div class="patient-profile-card">
+                <div class="profile-item">
+                    <span class="profile-label">Patient ID</span>
+                    <span class="profile-value" style="color: #38bdf8;">#{selected_id}</span>
+                </div>
+                <div class="profile-item">
+                    <span class="profile-label">Age & Sex</span>
+                    <span class="profile-value">{age_in_years} yrs • {gender_str}</span>
+                </div>
+                <div class="profile-item">
+                    <span class="profile-label">Height & Weight</span>
+                    <span class="profile-value">{selected_row['height']:.0f} cm • {selected_row['weight']:.1f} kg</span>
+                </div>
+                <div class="profile-item">
+                    <span class="profile-label">Blood Pressure</span>
+                    <span class="profile-value">{bp_str}</span>
+                </div>
+                <div class="profile-item">
+                    <span class="profile-label">BMI</span>
+                    <span class="profile-value">{bmi_calc:.1f} kg/m²</span>
+                </div>
+                <div class="profile-item">
+                    <span class="profile-label">True Outcome</span>
+                    <span class="profile-value" style="color: {truth_color};">
+                        {'CVD Positive (1)' if truth == 1 else 'CVD Negative (0)'}
+                    </span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        patient_record_df = all_demo[all_demo["id"] == selected_id].copy()
+
+        with st.expander("📋 View Raw Patient Attributes from Cohort Dataset", expanded=False):
+            st.dataframe(patient_record_df, use_container_width=True)
+
+        if st.button("🚀 Evaluate Model Prediction Against Clinical Ground Truth", type="primary", use_container_width=True):
+            with st.spinner("Executing model pipeline..."):
+                try:
+                    res = predict_patient(patient_record_df, cfg, model)
+                    display_patient_results(res, patient_record_df, cfg, ground_truth=truth)
+                except Exception as e:
+                    st.error(f"Inference error: {e}")
+
+    # --------------------------------------------------------------------------
+    # MODE 3: BATCH CSV SCREENING
+    # --------------------------------------------------------------------------
     else:
-        render_single_record_form(cfg, model, metadata)
+        st.subheader("1. Batch Patient Screening via CSV Upload")
+        st.caption("Upload a CSV file containing multiple patient records to perform batch cardiovascular disease stratification.")
+
+        c_up, c_dl = st.columns([3, 1])
+
+        with c_dl:
+            st.write("")
+            st.write("")
+            template_df = get_upload_template(cfg)
+            csv_bytes = template_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download CSV Template",
+                data=csv_bytes,
+                file_name="cardio_patient_template.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        with c_up:
+            uploaded_file = st.file_uploader("Upload CSV Dataset", type=["csv"])
+
+        if uploaded_file is not None:
+            try:
+                # Detect separator
+                try:
+                    batch_df = pd.read_csv(uploaded_file, sep=";")
+                    if len(batch_df.columns) < 5:
+                        uploaded_file.seek(0)
+                        batch_df = pd.read_csv(uploaded_file, sep=",")
+                except Exception:
+                    uploaded_file.seek(0)
+                    batch_df = pd.read_csv(uploaded_file, sep=None, engine="python")
+
+                errs = validate_input(batch_df, cfg)
+                if errs:
+                    st.error("Uploaded CSV failed schema validation:")
+                    for err in errs:
+                        st.write(f"- {err}")
+                else:
+                    st.success(f"Successfully loaded {len(batch_df)} patient records with valid schema!")
+                    st.dataframe(batch_df.head(10), use_container_width=True)
+
+                    if st.button("🚀 Run Batch Prediction on Cohort", type="primary", use_container_width=True):
+                        with st.spinner("Scoring batch records through champion model pipeline..."):
+                            scored_df = predict_from_features(batch_df, model)
+
+                            st.markdown("---")
+                            st.subheader("2. Batch Screening Results")
+
+                            # Summary KPI cards
+                            n_total = len(scored_df)
+                            n_high = (scored_df["prediction"] == 1).sum()
+                            pct_high = (n_high / n_total) * 100.0
+
+                            k1, k2, k3 = st.columns(3)
+                            k1.metric("Total Patients Screened", f"{n_total:,}")
+                            k2.metric("Predicted CVD Positive", f"{n_high:,}", f"{pct_high:.1f}% Prevalence")
+                            k3.metric("Predicted Low Risk / Safe", f"{n_total - n_high:,}", f"{100.0 - pct_high:.1f}%")
+
+                            # Download scored results
+                            result_csv = scored_df.to_csv(index=False).encode("utf-8")
+                            st.download_button(
+                                label="📥 Export Full Scored Dataset (CSV)",
+                                data=result_csv,
+                                file_name="batch_cardio_predictions.csv",
+                                mime="text/csv",
+                                use_container_width=True,
+                            )
+
+                            st.dataframe(scored_df, use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Failed to process CSV: {e}")
 
 
 def display_patient_results(
-    res: Dict[str, Any], history_df: pd.DataFrame, cfg: Dict[str, Any]
+    res: Dict[str, Any], patient_df: pd.DataFrame, cfg: Dict[str, Any], ground_truth: Optional[int] = None
 ):
-    """Display computed prediction, vital KPI cards, and longitudinal trend plots."""
+    """Render computed prediction, semi-circular risk gauge, and clinical KPI diagnostic cards."""
     st.markdown("---")
     st.subheader("2. Diagnostic Risk Assessment")
 
     prob = res["probability"]
     label_text = res["label_text"]
     risk_level = res["risk_level"]
+    pred = res["prediction"]
 
     # Recommendations based on risk level
     if risk_level == "High":
         banner_class = "risk-banner-high"
         tag_class = "tag-high"
-        headline = "🚨 Elevated CardioMetabolic Risk Detected"
+        headline = "🚨 Elevated Cardiovascular Disease Risk Detected"
         desc = (
-            "The model identifies an accelerated risk profile based on adverse longitudinal biomarker trajectories. "
-            "<strong>Early clinical intervention recommended:</strong> Comprehensive metabolic evaluation, medication regimen adjustment, "
-            "and follow-up consultation within 14–30 days."
+            "The model identifies a high likelihood of cardiovascular pathology based on the multivariable physiological profile. "
+            "<strong>Recommended Clinical Actions:</strong> 12-lead ECG, comprehensive lipid panel (LDL, HDL, Triglycerides), "
+            "blood pressure monitoring protocol, and therapeutic lifestyle changes or antihypertensive therapy."
         )
     elif risk_level == "Moderate":
         banner_class = "risk-banner-moderate"
         tag_class = "tag-moderate"
-        headline = "⚠️ Intermediate Risk Trajectory"
+        headline = "⚠️ Intermediate Cardiovascular Risk Profile"
         desc = (
-            "Patient demonstrates borderline vital trends requiring observation. "
-            "<strong>Recommended action:</strong> Lifestyle counseling, dietary sodium reduction, and routine 60-day vital re-assessment."
+            "Patient exhibits borderline cardiovascular risk factors requiring clinical vigilance. "
+            "<strong>Recommended Actions:</strong> Sodium restriction, aerobic physical activity (≥150 min/week), dietary consultation, "
+            "and repeat blood pressure and lipid screening in 60–90 days."
         )
     else:
         banner_class = "risk-banner-low"
         tag_class = "tag-low"
-        headline = "✅ Low Risk / Stable Biomarker Profile"
+        headline = "✅ Normal / Low Cardiovascular Risk Profile"
         desc = (
-            "Longitudinal parameters are within safe target thresholds with no acute negative trend slopes detected. "
-            "<strong>Recommended action:</strong> Maintain current care plan and standard annual check-up schedule."
+            "Patient biomarkers align with desirable physiological ranges without acute hemodynamic or metabolic risk indicators. "
+            "<strong>Recommended Actions:</strong> Maintain current heart-healthy habits, balanced nutrition, and standard annual preventative check-ups."
         )
 
     # Two-Column Hero: Gauge Meter + Clinical Decision Card
@@ -900,153 +1068,190 @@ def display_patient_results(
 
     with col_decision:
         st.write("")
+        truth_badge = ""
+        if ground_truth is not None:
+            is_correct = (pred == ground_truth)
+            verdict_text = "MATCHES CLINICAL TRUTH" if is_correct else "DISCREPANCY WITH GROUND TRUTH"
+            verdict_color = "#34d399" if is_correct else "#f87171"
+            truth_badge = (
+                f'<div style="margin-bottom: 8px;">'
+                f'<span style="font-size: 0.76rem; font-weight: 700; background: rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 4px; color: {verdict_color}; border: 1px solid {verdict_color}40;">'
+                f'✓ {verdict_text} (True: {ground_truth} | Pred: {pred})'
+                f'</span></div>'
+            )
+
+        banner_html = (
+            f'<div class="risk-banner {banner_class}">'
+            f'{truth_badge}'
+            f'<span class="risk-banner-tag {tag_class}">{risk_level} Risk Category</span>'
+            f'<div class="risk-headline">{headline}</div>'
+            f'<p class="risk-body-desc">{desc}</p>'
+            f'<div style="margin-top: 12px; display: flex; gap: 14px; font-size: 0.84rem; color: #94a3b8; flex-wrap: wrap;">'
+            f'<span>Calculated Probability: <strong style="color: #f8fafc;">{prob * 100:.1f}%</strong></span>'
+            f'<span>•</span>'
+            f'<span>Classification: <strong style="color: #f8fafc;">{label_text}</strong></span>'
+            f'</div></div>'
+        )
+        st.markdown(banner_html, unsafe_allow_html=True)
+
+    # 3. Clinical Vital KPI Cards
+    st.write("")
+    st.subheader("3. Clinical Biomarker Breakdown & Categorical Stratification")
+    summary = res.get("patient_summary", {})
+    demo = summary.get("demographics", {})
+    hemo = summary.get("hemodynamics", {})
+    meta = summary.get("metabolic", {})
+    life = summary.get("lifestyle", {})
+
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+
+    # Card 1: Hemodynamics
+    bp_cat = hemo.get("bp_category", "Normal")
+    bp_pill_class = (
+        "delta-red" if "Stage 2" in bp_cat or "Crisis" in bp_cat
+        else ("delta-neutral" if "Stage 1" in bp_cat or "Elevated" in bp_cat else "delta-green")
+    )
+    with kpi1:
         st.markdown(
             f"""
-            <div class="risk-banner {banner_class}">
-                <span class="risk-banner-tag {tag_class}">{risk_level} Risk Category</span>
-                <div class="risk-headline">{headline}</div>
-                <p class="risk-body-desc">{desc}</p>
-                <div style="margin-top: 12px; display: flex; gap: 10px; font-size: 0.82rem; color: #94a3b8;">
-                    <span>Calculated Probability: <strong style="color: #f8fafc;">{prob * 100:.1f}%</strong></span>
-                    <span>•</span>
-                    <span>Classification: <strong style="color: #f8fafc;">{label_text}</strong></span>
+            <div class="vital-card">
+                <div>
+                    <div class="vital-header">
+                        <span class="vital-title">🩺 Blood Pressure</span>
+                    </div>
+                    <div class="vital-value-row">
+                        <span class="vital-value">{hemo.get('ap_hi', 120):.0f} / {hemo.get('ap_lo', 80):.0f}</span>
+                        <span class="vital-unit">mmHg</span>
+                    </div>
+                    <div class="vital-delta-pill {bp_pill_class}">
+                        <span>AHA Stage: {bp_cat}</span>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 0.78rem; color: #cbd5e1; font-weight: 600; margin-bottom: 2px;">
+                        Pulse Pressure: {hemo.get('pulse_pressure', 40):.0f} mmHg
+                    </div>
+                    <div class="vital-ref-tag">
+                        Mean Arterial Pressure: {hemo.get('mean_arterial_pressure', 93.3):.1f} mmHg
+                    </div>
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # 3. Clinical Vital KPI Cards
-    st.write("")
-    st.subheader("3. Clinical Baseline & Longitudinal Biomarker Dynamics")
-    summary = res.get("patient_summary", {})
-    vitals = summary.get("vitals", {})
-
-    if vitals:
-        cols = st.columns(len(vitals))
-        for idx, (vital_name, stats) in enumerate(vitals.items()):
-            latest_val = stats["latest"]
-            chg = stats["change"]
-            pct_chg = stats["pct_change"]
-            icon = VITAL_ICONS.get(vital_name, "📊")
-            display_name = vital_name.replace("_", " ").title()
-
-            tag_text, status_class, ref_text = get_clinical_classification(
-                vital_name, latest_val
-            )
-            unit = PHYSIOLOGICAL_RANGES.get(vital_name, {}).get("unit", "")
-
-            sign = "+" if chg > 0 else ""
-            delta_str = f"{sign}{chg:.1f} {unit} ({sign}{pct_chg:.1f}%)"
-
-            with cols[idx]:
-                st.markdown(
-                    f"""
-                    <div class="vital-card">
-                        <div>
-                            <div class="vital-header">
-                                <span class="vital-title">{icon} {display_name}</span>
-                            </div>
-                            <div class="vital-value-row">
-                                <span class="vital-value">{latest_val}</span>
-                                <span class="vital-unit">{unit}</span>
-                            </div>
-                            <div class="vital-delta-pill {status_class}">
-                                <span>{'▲' if chg > 0 else ('▼' if chg < 0 else '•')}</span>
-                                <span>{delta_str}</span>
-                            </div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.75rem; color: #cbd5e1; font-weight: 600; margin-bottom: 2px;">
-                                {tag_text}
-                            </div>
-                            <div class="vital-ref-tag">
-                                {ref_text}
-                            </div>
-                        </div>
+    # Card 2: Anthropometrics & BMI
+    bmi_val = demo.get("bmi", 24.0)
+    bmi_cat = demo.get("bmi_category", "Normal")
+    bmi_pill_class = (
+        "delta-green" if bmi_cat == "Normal"
+        else ("delta-neutral" if bmi_cat == "Overweight" else "delta-red")
+    )
+    with kpi2:
+        st.markdown(
+            f"""
+            <div class="vital-card">
+                <div>
+                    <div class="vital-header">
+                        <span class="vital-title">⚖️ Body Mass Index</span>
                     </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                    <div class="vital-value-row">
+                        <span class="vital-value">{bmi_val:.1f}</span>
+                        <span class="vital-unit">kg/m²</span>
+                    </div>
+                    <div class="vital-delta-pill {bmi_pill_class}">
+                        <span>WHO: {bmi_cat}</span>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 0.78rem; color: #cbd5e1; font-weight: 600; margin-bottom: 2px;">
+                        Height: {demo.get('height', 165):.0f} cm • Weight: {demo.get('weight', 70):.1f} kg
+                    </div>
+                    <div class="vital-ref-tag">
+                        Healthy Target: 18.5 – 24.9 kg/m²
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    # 4. Longitudinal Trajectory Charts with Normal Reference Bands
-    st.write("")
-    st.subheader("4. Chronological Biomarker Trajectories with Target Bands")
-    date_col = cfg["dataset"]["date_col"]
-    tv_cols = cfg["dataset"].get("time_varying_numeric", [])
+    # Card 3: Metabolic Status
+    chol_label = meta.get("cholesterol_label", "Normal")
+    gluc_label = meta.get("glucose_label", "Normal")
+    meta_pill_class = (
+        "delta-red" if chol_label == "Well Above Normal" or gluc_label == "Well Above Normal"
+        else ("delta-neutral" if chol_label == "Above Normal" or gluc_label == "Above Normal" else "delta-green")
+    )
+    with kpi3:
+        st.markdown(
+            f"""
+            <div class="vital-card">
+                <div>
+                    <div class="vital-header">
+                        <span class="vital-title">🧪 Metabolic Profile</span>
+                    </div>
+                    <div class="vital-value-row">
+                        <span class="vital-value" style="font-size: 1.15rem;">Chol: {chol_label}</span>
+                    </div>
+                    <div class="vital-delta-pill {meta_pill_class}">
+                        <span>Glucose: {gluc_label}</span>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 0.78rem; color: #cbd5e1; font-weight: 600; margin-bottom: 2px;">
+                        Atherosclerosis Indicator: {'Elevated' if chol_label != 'Normal' else 'Optimal'}
+                    </div>
+                    <div class="vital-ref-tag">
+                        Clinical Target: Fasting & Total Lipids Level 1
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    if len(history_df) >= 2 and tv_cols:
-        plot_df = history_df.copy()
-        plot_df[date_col] = pd.to_datetime(plot_df[date_col], errors="coerce")
-        plot_df = plot_df.sort_values(by=date_col)
+    # Card 4: Lifestyle Factors
+    smoke_str = life.get("smoking", "No")
+    act_str = life.get("physical_activity", "Active")
+    is_smoker = "Yes" in smoke_str
+    is_inactive = "Sedentary" in act_str
+    life_pill_class = "delta-red" if (is_smoker or is_inactive) else "delta-green"
+    with kpi4:
+        st.markdown(
+            f"""
+            <div class="vital-card">
+                <div>
+                    <div class="vital-header">
+                        <span class="vital-title">🏃 Behavioral Factors</span>
+                    </div>
+                    <div class="vital-value-row">
+                        <span class="vital-value" style="font-size: 1.15rem;">{act_str}</span>
+                    </div>
+                    <div class="vital-delta-pill {life_pill_class}">
+                        <span>Smoking: {smoke_str}</span>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 0.78rem; color: #cbd5e1; font-weight: 600; margin-bottom: 2px;">
+                        Alcohol Consumption: {life.get('alcohol', 'No')}
+                    </div>
+                    <div class="vital-ref-tag">
+                        Risk Factor: Smoking + Physical Inactivity
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        chart_cols = st.columns(2)
-        for i, col in enumerate(tv_cols):
-            with chart_cols[i % 2]:
-                ref_info = PHYSIOLOGICAL_RANGES.get(col, {})
-                y0 = ref_info.get("y0", 0)
-                y1 = ref_info.get("y1", 100)
-                unit_label = ref_info.get("unit", "")
-                nice_name = col.replace("_", " ").title()
+    # 4. Comprehensive Clinical Consultation Summary & Patient Care Plan
+    render_patient_consultation_summary(res, patient_df)
 
-                fig = px.line(
-                    plot_df,
-                    x=date_col,
-                    y=col,
-                    markers=True,
-                    title=f"<b>{nice_name} Trajectory</b> ({unit_label})",
-                )
-                fig.update_traces(
-                    line=dict(color="#38bdf8", width=3, shape="spline", smoothing=1.1),
-                    marker=dict(
-                        size=8,
-                        color="#0284c7",
-                        line=dict(width=2, color="#ffffff"),
-                    ),
-                    fill="tozeroy",
-                    fillcolor="rgba(56, 189, 248, 0.05)",
-                    hovertemplate=(
-                        f"<b>Date:</b> %{{x|%b %d, %Y}}<br>"
-                        f"<b>{nice_name}:</b> %{{y:.1f}} {unit_label}<extra></extra>"
-                    ),
-                )
-
-                # Add normal reference shaded band
-                fig.add_hrect(
-                    y0=y0,
-                    y1=y1,
-                    fillcolor="rgba(16, 185, 129, 0.08)",
-                    line_width=0,
-                    annotation_text=f"Normal Target ({y0}-{y1})",
-                    annotation_position="top left",
-                    annotation_font=dict(size=10, color="#34d399"),
-                )
-
-                fig.update_layout(
-                    height=280,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    paper_bgcolor="rgba(15, 23, 42, 0.55)",
-                    plot_bgcolor="rgba(15, 23, 42, 0.35)",
-                    font=dict(color="#94a3b8", family="Plus Jakarta Sans"),
-                    xaxis=dict(
-                        gridcolor="rgba(255, 255, 255, 0.05)",
-                        title="",
-                        tickfont=dict(size=10, color="#94a3b8"),
-                    ),
-                    yaxis=dict(
-                        gridcolor="rgba(255, 255, 255, 0.05)",
-                        title=f"{unit_label}",
-                        tickfont=dict(size=10, color="#94a3b8"),
-                    ),
-                )
-                st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Single visit on record: longitudinal trend graph requires at least 2 chronological observations.")
-
-    # 5. Engineered Feature Vector Inspector
+    # 5. Feature Vector Inspector
     with st.expander("🔍 Inspect Internal Engineered Feature Vector (Sent to Pipeline)"):
         feat_rows = []
-        for k, v in res["features_used"].items():
+        for k, v in res.get("features_used", {}).items():
             if isinstance(v, (float, np.floating)):
                 val_str = f"{v:.4f}"
             else:
@@ -1056,66 +1261,295 @@ def display_patient_results(
         st.dataframe(feat_df, use_container_width=True)
 
 
-# ==============================================================================
-# SINGLE RECORD FORM MODE
-# ==============================================================================
-def render_single_record_form(cfg: Dict[str, Any], model: Any, metadata: Dict[str, Any]):
-    """Dynamic form for single-record mode."""
-    st.subheader("Single Patient Assessment")
-    dataset_cfg = cfg["dataset"]
-    valid_ranges = dataset_cfg.get("valid_ranges", {})
-    static_num = dataset_cfg.get("static_numeric", [])
-    static_cat = dataset_cfg.get("static_categorical", [])
-    tv_cols = dataset_cfg.get("time_varying_numeric", [])
+def render_patient_consultation_summary(res: Dict[str, Any], patient_df: pd.DataFrame):
+    """Render comprehensive clinical consultation summary, primary risk drivers, actionable care plan, and downloadable report."""
+    st.write("")
+    st.subheader("4. 📋 Patient Clinical Consultation Summary & Care Plan")
+    st.caption("Personalized risk analysis, primary physiological drivers, and evidence-based patient management recommendations.")
 
-    with st.form("single_patient_form"):
-        col1, col2 = st.columns(2)
-        inputs = {}
+    summary = res.get("patient_summary", {})
+    demo = summary.get("demographics", {})
+    hemo = summary.get("hemodynamics", {})
+    meta = summary.get("metabolic", {})
+    life = summary.get("lifestyle", {})
 
-        for i, col in enumerate(static_num + tv_cols):
-            c = col1 if i % 2 == 0 else col2
-            low, high = valid_ranges.get(col, (0, 300))
-            default_val = float(low + (high - low) * 0.4)
-            inputs[col] = c.number_input(
-                f"{col.replace('_', ' ').title()} ({low} - {high})",
-                min_value=float(low),
-                max_value=float(high),
-                value=round(default_val, 1),
-            )
+    prob = res["probability"]
+    risk_level = res["risk_level"]
+    pred = res["prediction"]
 
-        for col in static_cat:
-            cat_opts = metadata.get("categorical_values", {}).get(col, ["F", "M", "Other"])
-            inputs[col] = col1.selectbox(col.replace("_", " ").title(), cat_opts)
+    age = demo.get("age_years", 50.0)
+    gender = demo.get("gender", "Female")
+    height = demo.get("height", 165.0)
+    weight = demo.get("weight", 70.0)
+    bmi = demo.get("bmi", 25.0)
+    bmi_cat = demo.get("bmi_category", "Normal")
 
-        submitted = st.form_submit_button("Predict Patient Risk", type="primary", use_container_width=True)
+    ap_hi = hemo.get("ap_hi", 120.0)
+    ap_lo = hemo.get("ap_lo", 80.0)
+    pulse_pressure = hemo.get("pulse_pressure", 40.0)
+    mean_ap = hemo.get("mean_arterial_pressure", 93.3)
+    bp_cat = hemo.get("bp_category", "Normal")
 
-    if submitted:
-        single_df = pd.DataFrame([inputs])
-        preds_df = predict_from_features(single_df, model)
-        pred = int(preds_df["prediction"].iloc[0])
-        prob = (
-            float(preds_df["risk_probability"].iloc[0])
-            if "risk_probability" in preds_df.columns
-            else (1.0 if pred == 1 else 0.0)
+    chol_lvl = meta.get("cholesterol_level", 1)
+    chol_label = meta.get("cholesterol_label", "Normal")
+    gluc_lvl = meta.get("glucose_level", 1)
+    gluc_label = meta.get("glucose_label", "Normal")
+
+    smoking_str = life.get("smoking", "No")
+    alcohol_str = life.get("alcohol", "No")
+    active_str = life.get("physical_activity", "Active")
+
+    is_smoker = "Yes" in smoking_str or "Smoker" in smoking_str
+    is_drinker = "Yes" in alcohol_str or "Drinks" in alcohol_str
+    is_active = "Active" in active_str
+
+    # 1. Identify Clinical Risk Drivers & Protective Factors
+    risk_drivers = []
+    protective_factors = []
+
+    # Blood pressure
+    if ap_hi >= 140 or ap_lo >= 90:
+        risk_drivers.append((
+            "red",
+            f"Stage 2 Hypertension ({ap_hi:.0f}/{ap_lo:.0f} mmHg)",
+            "High systemic vascular resistance directly increases myocardial workload, vascular shear stress, and stroke risk."
+        ))
+    elif ap_hi >= 130 or ap_lo >= 80:
+        risk_drivers.append((
+            "amber",
+            f"Stage 1 Hypertension ({ap_hi:.0f}/{ap_lo:.0f} mmHg)",
+            "Elevated blood pressure exceeds optimal vascular target (<120/80 mmHg), accelerating arterial wall remodeling."
+        ))
+    elif ap_hi >= 120:
+        risk_drivers.append((
+            "amber",
+            f"Elevated Blood Pressure ({ap_hi:.0f}/{ap_lo:.0f} mmHg)",
+            "Systolic pressure is above desirable threshold and requires lifestyle modification to avoid hypertension progression."
+        ))
+    else:
+        protective_factors.append(f"Optimal Blood Pressure ({ap_hi:.0f}/{ap_lo:.0f} mmHg)")
+
+    # Arterial stiffness (Pulse pressure)
+    if pulse_pressure >= 60:
+        risk_drivers.append((
+            "red",
+            f"Wide Pulse Pressure ({pulse_pressure:.0f} mmHg)",
+            "Elevated differential indicates loss of large-artery elastic compliance (arterial stiffness)."
+        ))
+
+    # Cholesterol
+    if chol_lvl >= 3:
+        risk_drivers.append((
+            "red",
+            "Severe Hypercholesterolemia (Level 3: Well Above Normal)",
+            "Critical excess of circulating atherogenic lipoproteins promotes coronary plaque formation and vascular stenosis."
+        ))
+    elif chol_lvl == 2:
+        risk_drivers.append((
+            "amber",
+            "Elevated Serum Cholesterol (Level 2: Above Normal)",
+            "Above-target lipid level increases 10-year coronary atherosclerosis likelihood."
+        ))
+    else:
+        protective_factors.append("Optimal Serum Cholesterol (Level 1: < 200 mg/dL)")
+
+    # Glucose
+    if gluc_lvl >= 3:
+        risk_drivers.append((
+            "red",
+            "High Fasting Blood Glucose (Level 3: Well Above Normal)",
+            "Hyperglycemia triggers endothelial inflammation, oxidative damage, and heightened cardiovascular mortality."
+        ))
+    elif gluc_lvl == 2:
+        risk_drivers.append((
+            "amber",
+            "Impaired Fasting Glucose (Level 2: Above Normal)",
+            "Prediabetic range indicates developing insulin resistance, compounding cardiovascular risk."
+        ))
+    else:
+        protective_factors.append("Optimal Fasting Blood Glucose (Level 1: < 100 mg/dL)")
+
+    # BMI
+    if bmi >= 30.0:
+        risk_drivers.append((
+            "red",
+            f"Clinical Obesity (BMI: {bmi:.1f} kg/m²)",
+            "Significant excess adiposity raises cardiac preload, systemic inflammation, and metabolic syndrome risk."
+        ))
+    elif bmi >= 25.0:
+        risk_drivers.append((
+            "amber",
+            f"Overweight Classification (BMI: {bmi:.1f} kg/m²)",
+            "Weight exceeds normal reference window (18.5–24.9 kg/m²), placing additional hemodynamic load on the heart."
+        ))
+    else:
+        protective_factors.append(f"Healthy Body Mass Index ({bmi:.1f} kg/m²)")
+
+    # Smoking
+    if is_smoker:
+        risk_drivers.append((
+            "red",
+            "Active Tobacco Smoker",
+            "Tobacco exposure impairs nitric oxide release, provokes coronary vasospasm, and elevates platelet thrombogenicity."
+        ))
+    else:
+        protective_factors.append("Non-Smoker (Absence of Tobacco Toxins)")
+
+    # Physical Activity
+    if not is_active:
+        risk_drivers.append((
+            "amber",
+            "Physical Inactivity / Sedentary Lifestyle",
+            "Sedentary habits correlate with reduced endothelial responsiveness and sub-optimal cardiorespiratory fitness."
+        ))
+    else:
+        protective_factors.append("Physically Active Lifestyle (Cardioprotective)")
+
+    # Alcohol
+    if is_drinker:
+        risk_drivers.append((
+            "amber",
+            "Regular Alcohol Intake",
+            "Can stimulate sympathetic activity, elevate nocturnal blood pressure, and contribute to excess caloric intake."
+        ))
+    else:
+        protective_factors.append("Non-Drinker")
+
+    # Render Executive Narrative
+    summary_bg = "rgba(239, 68, 68, 0.08)" if risk_level == "High" else ("rgba(245, 158, 11, 0.08)" if risk_level == "Moderate" else "rgba(16, 185, 129, 0.08)")
+    summary_border = "#ef4444" if risk_level == "High" else ("#f59e0b" if risk_level == "Moderate" else "#10b981")
+
+    top_drivers_text = ", ".join([d[1] for d in risk_drivers[:3]]) if risk_drivers else "No acute risk factors detected"
+
+    narrative_html = (
+        f'<div style="background: {summary_bg}; border: 1px solid {summary_border}50; border-left: 4px solid {summary_border}; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.2rem;">'
+        f'<div style="font-weight: 800; font-size: 1.15rem; color: #ffffff; margin-bottom: 0.4rem;">'
+        f'Executive Clinical Synthesis for {gender}, Age {age:.0f}'
+        f'</div>'
+        f'<p style="color: #cbd5e1; font-size: 0.92rem; line-height: 1.6; margin: 0 0 0.8rem 0;">'
+        f'Comprehensive machine learning analysis evaluates this patient at <strong style="color: #ffffff;">{risk_level} Cardiovascular Risk ({prob * 100:.1f}% estimated probability)</strong>. '
+        f'The outcome is primarily governed by: <strong style="color: #f8fafc;">{top_drivers_text}</strong>.'
+        f'</p>'
+        f'<div style="display: flex; gap: 10px; flex-wrap: wrap;">'
+    )
+    for chip_type, label, _ in risk_drivers:
+        chip_cls = "driver-chip-red" if chip_type == "red" else "driver-chip-amber"
+        narrative_html += f'<span class="driver-chip {chip_cls}">⚠️ {label}</span>'
+    for prot in protective_factors:
+        narrative_html += f'<span class="driver-chip driver-chip-green">✓ {prot}</span>'
+    narrative_html += '</div></div>'
+
+    st.markdown(narrative_html, unsafe_allow_html=True)
+
+    # Risk Drivers and Protective Factors Columns
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        st.markdown("##### 🚨 Primary Risk Factors (Clinical Drivers)")
+        if risk_drivers:
+            for chip_type, title, detail in risk_drivers:
+                icon = "🔴" if chip_type == "red" else "🟠"
+                card_html = (
+                    f'<div style="background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;">'
+                    f'<div style="font-weight: 700; color: #f8fafc; font-size: 0.88rem; margin-bottom: 3px;">'
+                    f'{icon} {title}'
+                    f'</div>'
+                    f'<div style="color: #94a3b8; font-size: 0.81rem; line-height: 1.45;">'
+                    f'{detail}'
+                    f'</div></div>'
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
+        else:
+            st.success("No elevated risk drivers identified. Patient exhibits healthy baseline parameters.")
+
+    with col_d2:
+        st.markdown("##### 🛡️ Protective & Positive Biomarkers")
+        if protective_factors:
+            for prot in protective_factors:
+                prot_html = (
+                    f'<div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;">'
+                    f'<div style="font-weight: 700; color: #34d399; font-size: 0.88rem; margin-bottom: 2px;">'
+                    f'✓ {prot}'
+                    f'</div>'
+                    f'<div style="color: #94a3b8; font-size: 0.81rem; line-height: 1.45;">'
+                    f'Within recommended guideline thresholds; supports long-term vascular health.'
+                    f'</div></div>'
+                )
+                st.markdown(prot_html, unsafe_allow_html=True)
+        else:
+            st.warning("Multiple elevated biomarkers observed across hemodynamic and metabolic categories.")
+
+    # 4 Actionable Patient Care Plan Columns
+    st.write("")
+    st.markdown("##### 🎯 Evidence-Based Patient Care Plan & Actionable Suggestions")
+
+    plan1, plan2, plan3, plan4 = st.columns(4)
+
+    # 1. Clinical Follow-up
+    with plan1:
+        urgency_text = (
+            "Urgent clinical evaluation within <strong>7–14 days</strong>"
+            if risk_level == "High"
+            else ("Consultation recommended within <strong>30–45 days</strong>" if risk_level == "Moderate" else "Routine annual cardiovascular wellness visit")
         )
+        plan1_html = (
+            f'<div class="plan-card">'
+            f'<div>'
+            f'<div class="plan-header">🩺 1. Medical Management</div>'
+            f'<div class="plan-item">• <strong>Timeline:</strong> {urgency_text}.</div>'
+            f'<div class="plan-item">• <strong>Electrocardiogram (ECG):</strong> 12-lead ECG to evaluate left ventricular strain, conduction anomalies, or ischemia.</div>'
+            f'<div class="plan-item">• <strong>Comprehensive Lipid Panel:</strong> Quantify LDL-C, ApoB, and non-HDL-C to assess atherogenic burden.</div>'
+            f'<div class="plan-item">• <strong>Ambulatory BP Protocol:</strong> Log morning and evening BP twice daily for 14 days before therapy adjustment.</div>'
+            f'</div></div>'
+        )
+        st.markdown(plan1_html, unsafe_allow_html=True)
 
-        risk_lvl = "High" if prob >= 0.65 else ("Moderate" if prob >= 0.40 else "Low")
-        col_g, col_t = st.columns([1, 1.4])
-        with col_g:
-            st.plotly_chart(create_risk_gauge(prob, risk_lvl), use_container_width=True)
-        with col_t:
-            st.write("")
-            st.write("")
-            st.markdown(
-                f"""
-                <div class="risk-banner {'risk-banner-high' if risk_lvl == 'High' else ('risk-banner-moderate' if risk_lvl == 'Moderate' else 'risk-banner-low')}">
-                    <span class="risk-banner-tag {'tag-high' if risk_lvl == 'High' else ('tag-moderate' if risk_lvl == 'Moderate' else 'tag-low')}">{risk_lvl} Risk</span>
-                    <div class="risk-headline">Estimated Risk: {prob * 100:.1f}%</div>
-                    <p class="risk-body-desc">Single-record cross-sectional prediction generated by the active machine learning pipeline.</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    # 2. Nutrition
+    with plan2:
+        plan2_html = (
+            f'<div class="plan-card">'
+            f'<div>'
+            f'<div class="plan-header">🥗 2. Nutrition & Diet</div>'
+            f'<div class="plan-item">• <strong>DASH / Mediterranean Diet:</strong> High in vegetables, whole grains, extra virgin olive oil, and legumes.</div>'
+            f'<div class="plan-item">• <strong>Sodium Restriction:</strong> Cap dietary sodium at <strong>&lt; 2,000 mg/day</strong> (&lt; 1 level tsp salt). Avoid ultra-processed foods.</div>'
+            f'<div class="plan-item">• <strong>Lipid Optimization:</strong> Restrict saturated fats to &lt; 7% daily calories; eliminate hydrogenated trans fats.</div>'
+            f'<div class="plan-item">• <strong>Viscous Soluble Fiber:</strong> Consume 25–35g/day (oats, barley, psyllium husk) to promote hepatic LDL clearance.</div>'
+            f'</div></div>'
+        )
+        st.markdown(plan2_html, unsafe_allow_html=True)
+
+    # 3. Exercise
+    with plan3:
+        plan3_html = (
+            f'<div class="plan-card">'
+            f'<div>'
+            f'<div class="plan-header">🏃 3. Exercise Prescription</div>'
+            f'<div class="plan-item">• <strong>Moderate Aerobic Target:</strong> Minimum <strong>150–300 minutes/week</strong> (e.g. brisk walking 30–45 min, 5 days/week).</div>'
+            f'<div class="plan-item">• <strong>Resistance Training:</strong> 2 non-consecutive sessions/week targeting major muscle groups to boost insulin sensitivity.</div>'
+            f'<div class="plan-item">• <strong>Anti-Sedentary Habit:</strong> Break prolonged sitting every 45–60 minutes with 3 minutes of light movement.</div>'
+            f'<div class="plan-item">• <strong>Cardiorespiratory Goal:</strong> Gradual progression with target heart rate at 50–70% heart rate reserve.</div>'
+            f'</div></div>'
+        )
+        st.markdown(plan3_html, unsafe_allow_html=True)
+
+    # 4. Lifestyle & Habit
+    with plan4:
+        smoke_advice = (
+            "Enroll in structured smoking cessation; consider nicotine replacement or physician-guided pharmacotherapy (varenicline)."
+            if is_smoker else "Maintain tobacco-free status (prevents vascular endothelial injury)."
+        )
+        plan4_html = (
+            f'<div class="plan-card">'
+            f'<div>'
+            f'<div class="plan-header">🚭 4. Behavioral & Wellness</div>'
+            f'<div class="plan-item">• <strong>Tobacco Protocol:</strong> {smoke_advice}</div>'
+            f'<div class="plan-item">• <strong>Alcohol Moderation:</strong> Restrict to &le; 1 drink/day for women, &le; 2 for men; abstain if hypertensive.</div>'
+            f'<div class="plan-item">• <strong>Restorative Sleep:</strong> Ensure 7–8 hours consistent sleep; screen for obstructive sleep apnea if snoring.</div>'
+            f'<div class="plan-item">• <strong>Stress Hygiene:</strong> 10–15 min daily diaphragmatic breathing, mindfulness, or progressive muscle relaxation.</div>'
+            f'</div></div>'
+        )
+        st.markdown(plan4_html, unsafe_allow_html=True)
+
+
 
 
 # ==============================================================================
@@ -1142,122 +1576,94 @@ def render_performance_tab(
                 <span class="badge-chip badge-chip-cyan">Active Production Pipeline</span>
             </div>
             <p style="margin: 0 0 0.8rem 0; color: #cbd5e1; font-size: 0.88rem;">
-                Evaluated across 4 classical architectures with 5-fold cross-validation on 2,400 patients and strictly held-out testing on 600 independent patients.
+                Trained and evaluated on 70,000 patient records with 5-fold stratified cross-validation (56,000 training samples) and held-out evaluation on 14,000 independent test patients.
             </p>
             <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
                 <div><span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;">Holdout F1 Score</span><br><strong style="font-size: 1.25rem; color: #38bdf8;">{test_m.get('f1', 0):.4f}</strong></div>
                 <div><span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;">ROC-AUC</span><br><strong style="font-size: 1.25rem; color: #818cf8;">{test_m.get('roc_auc', 0):.4f}</strong></div>
                 <div><span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;">Test Accuracy</span><br><strong style="font-size: 1.25rem; color: #34d399;">{test_m.get('accuracy', 0) * 100:.2f}%</strong></div>
-                <div><span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;">Holdout Recall</span><br><strong style="font-size: 1.25rem; color: #fbbf24;">{test_m.get('recall', 0):.4f}</strong></div>
-                <div><span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;">Holdout Precision</span><br><strong style="font-size: 1.25rem; color: #f472b6;">{test_m.get('precision', 0):.4f}</strong></div>
+                <div><span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;">Precision</span><br><strong style="font-size: 1.25rem; color: #fbbf24;">{test_m.get('precision', 0):.4f}</strong></div>
+                <div><span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;">Sensitivity / Recall</span><br><strong style="font-size: 1.25rem; color: #f43f5e;">{test_m.get('recall', 0):.4f}</strong></div>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # 1. Interactive Multi-Metric Comparison Bar Chart
-    st.subheader("1. Multi-Metric Benchmark Comparison")
-    comp_fig = create_model_comparison_bar_chart(metrics)
-    st.plotly_chart(comp_fig, use_container_width=True)
+    # 1. Interactive Bar Chart
+    st.subheader("1. Holdout Test Set Comparative Evaluation")
+    st.caption("Standardized test performance across 4 classical supervised learning architectures.")
+    fig_bar = create_model_comparison_bar_chart(metrics)
+    st.plotly_chart(fig_bar, use_container_width=True)
 
-    # 2. Comparative Benchmark Table
-    st.write("")
-    st.subheader("2. Standardized Holdout Metrics Table")
+    # 2. Benchmark Metrics Table
     summary_rows = []
-    for model_key, data in metrics.items():
-        row = {
-            "Model Architecture": data["display_name"],
-            "5-Fold CV Score": round(data.get("best_cv_score", 0), 4),
-        }
-        for m_name, score in data.get("test_metrics", {}).items():
-            row[m_name.upper()] = round(score, 4) if score is not None else "N/A"
-        summary_rows.append(row)
+    for k, v in metrics.items():
+        tm = v.get("test_metrics", {})
+        summary_rows.append({
+            "Model Architecture": v["display_name"],
+            "5-Fold CV Score": v.get("best_cv_score", 0.0),
+            "Test Accuracy": f"{tm.get('accuracy', 0) * 100:.2f}%",
+            "Precision": f"{tm.get('precision', 0):.4f}",
+            "Sensitivity / Recall": f"{tm.get('recall', 0):.4f}",
+            "F1-Score (Primary)": f"{tm.get('f1', 0):.4f}",
+            "ROC-AUC": f"{tm.get('roc_auc', 0):.4f}",
+        })
+    df_sum = pd.DataFrame(summary_rows)
+    st.dataframe(df_sum, use_container_width=True)
 
-    if summary_rows:
-        metrics_df = pd.DataFrame(summary_rows)
-        st.dataframe(
-            metrics_df.style.highlight_max(
-                axis=0,
-                subset=[c for c in metrics_df.columns if c not in ("Model Architecture", "5-Fold CV Score")],
-                color="#0c4a6e",
-            ),
-            use_container_width=True,
-        )
-
-    # 3. Model Evaluation Artifact Gallery (Tabs)
+    # 3. Model Diagnostic Plots
     st.write("")
-    st.subheader("3. Diagnostic Artifact Gallery")
-    fig_dir = PROJECT_ROOT / "reports" / "figures"
-    roc_path = fig_dir / "roc_curves.png"
-    comp_path = fig_dir / "model_comparison.png"
-    fi_path = fig_dir / "feature_importance.png"
-    cm_best_path = fig_dir / f"cm_{best_key}.png"
+    st.subheader("2. Model Diagnostics: ROC Curves & Feature Importance")
+    c_roc, c_imp = st.columns(2)
 
-    tab_roc, tab_cm, tab_fi, tab_comp = st.tabs([
-        "📈 ROC Curves",
-        "🎯 Confusion Matrix (Winner)",
-        "🧬 Feature Importance",
-        "📊 Static Benchmark Plot",
-    ])
+    roc_path = PROJECT_ROOT / "reports" / "figures" / "roc_curves.png"
+    imp_path = PROJECT_ROOT / "reports" / "figures" / "feature_importance.png"
 
-    with tab_roc:
+    with c_roc:
         if roc_path.exists():
-            st.image(
-                str(roc_path),
-                caption="Receiver Operating Characteristic (ROC) curves across all models. Logistic Regression and Random Forest deliver high discrimination (AUC ~ 0.74).",
-                use_container_width=True,
-            )
+            st.image(str(roc_path), caption="ROC Curves Benchmark on 14,000 Holdout Test Patients", use_container_width=True)
         else:
-            st.info("ROC Curve image not found in reports/figures.")
+            st.info("ROC Curve plot not found.")
 
-    with tab_cm:
-        if cm_best_path.exists():
-            st.image(
-                str(cm_best_path),
-                caption=f"Holdout Confusion Matrix: {best_name}. Shows high sensitivity for identifying high-risk deteriorating patients.",
-                use_container_width=True,
-            )
+    with c_imp:
+        if imp_path.exists():
+            st.image(str(imp_path), caption=f"Gini Feature Importance: {best_name}", use_container_width=True)
         else:
-            st.info("Confusion matrix image not found.")
+            st.info("Feature importance plot not found.")
 
-    with tab_fi:
-        if fi_path.exists():
-            st.image(
-                str(fi_path),
-                caption="Gini Feature Importance for top predictive engineered features in the Random Forest model.",
-                use_container_width=True,
-            )
-        else:
-            st.info("Feature importance image not found.")
-
-    with tab_comp:
-        if comp_path.exists():
-            st.image(
-                str(comp_path),
-                caption="Comparative bar plot of Accuracy, Precision, Recall, and F1 across all four architectures.",
-                use_container_width=True,
-            )
-        else:
-            st.info("Comparison figure not found.")
-
-    # 4. Hyperparameter Search Results
+    # 4. Confusion Matrices
     st.write("")
-    st.subheader("4. Best Hyperparameters Discovered by RandomizedSearchCV")
-    param_cols = st.columns(len(metrics))
-    for i, (model_key, data) in enumerate(metrics.items()):
-        is_winner = model_key == best_key
+    st.subheader("3. Confusion Matrices on Holdout Test Split (N=14,000)")
+    cm_cols = st.columns(4)
+    model_keys = ["random_forest", "logistic_regression", "decision_tree", "knn"]
+
+    for i, m_key in enumerate(model_keys):
+        cm_file = PROJECT_ROOT / "reports" / "figures" / f"cm_{m_key}.png"
+        with cm_cols[i]:
+            if cm_file.exists():
+                st.image(str(cm_file), caption=f"{metrics.get(m_key, {}).get('display_name', m_key)}", use_container_width=True)
+            else:
+                st.info(f"CM for {m_key} not available.")
+
+    # 5. Hyperparameter Tuning Inspector
+    st.write("")
+    st.subheader("4. Best Hyperparameter Configurations from Stratified 5-Fold Cross Validation")
+    param_cols = st.columns(4)
+    for i, m_key in enumerate(model_keys):
+        data = metrics.get(m_key, {})
+        is_winner = (m_key == best_key)
         with param_cols[i]:
             st.markdown(
                 f"""
                 <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid {'#38bdf8' if is_winner else 'rgba(255,255,255,0.08)'}; border-radius: 10px; padding: 12px; height: 100%;">
                     <div style="font-weight: 700; color: {'#38bdf8' if is_winner else '#f8fafc'}; font-size: 0.95rem; margin-bottom: 6px;">
-                        {data['display_name']} {'⭐' if is_winner else ''}
+                        {data.get('display_name', m_key)} {'⭐' if is_winner else ''}
                     </div>
                     <div style="font-size: 0.76rem; color: #94a3b8; margin-bottom: 6px;">
                         5-Fold CV Score: <strong style="color: #cbd5e1;">{data.get('best_cv_score', 'N/A')}</strong>
                     </div>
-                    <div style="font-size: 0.76rem; color: #cbd5e1; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; font-family: monospace;">
+                    <div style="font-size: 0.74rem; color: #cbd5e1; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; font-family: monospace;">
                         {str(data.get('best_params', {}))}
                     </div>
                 </div>
@@ -1267,10 +1673,10 @@ def render_performance_tab(
 
 
 # ==============================================================================
-# TAB 3: METHODOLOGY & VIVA NOTES
+# TAB 3: METHODOLOGY & SYSTEM ARCHITECTURE
 # ==============================================================================
 def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
-    """Documentation, Viva Defense Notes, and Academic Integrity."""
+    """Documentation, Clinical Architecture, and System Methodology."""
     st.subheader("System Architecture & Clinical Rationale")
 
     col1, col2 = st.columns(2)
@@ -1279,18 +1685,18 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
         st.markdown(
             """
             <div class="viva-card">
-                <h4 style="margin: 0 0 8px 0; color: #38bdf8;">📌 Why Machine Learning (Not Fixed Clinical Rules)?</h4>
+                <h4 style="margin: 0 0 8px 0; color: #38bdf8;">📌 Clinical Problem & Motivation</h4>
                 <ul style="margin: 0; padding-left: 20px; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6;">
-                    <li><strong>Multivariate Non-Linear Interactions:</strong> Clinical deterioration is rarely driven by a single isolated biomarker. Moderate systolic hypertension combined with rising fasting glucose confers multiplicative risk compared to either abnormality alone.</li>
-                    <li><strong>Empirical Calibration:</strong> Clinical heuristics say <em>"BP is trending upward"</em>, but supervised ML computes calibrated posterior probabilities ($P(\text{adverse event} \mid X)$) rigorously trained on historical patient trajectories.</li>
+                    <li><strong>Global Burden:</strong> Cardiovascular disease (CVD) is the leading cause of global mortality. Early stratification enables preventative lifestyle and pharmacological interventions before acute myocardial infarction or stroke.</li>
+                    <li><strong>Non-Linear Synergies:</strong> A single elevated biomarker (e.g. Systolic BP = 135 mmHg) may appear moderate in isolation, but combined with elevated cholesterol, smoking, and age > 50, it confers multiplicative risk captured by machine learning.</li>
                 </ul>
             </div>
 
             <div class="viva-card">
-                <h4 style="margin: 0 0 8px 0; color: #38bdf8;">🛡️ Zero Patient Data Leakage Architecture</h4>
+                <h4 style="margin: 0 0 8px 0; color: #38bdf8;">🛡️ Zero Data Leakage Architecture</h4>
                 <ul style="margin: 0; padding-left: 20px; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6;">
-                    <li><strong>Patient-Level Splitting (<code>GroupShuffleSplit</code>):</strong> Splitting is grouped strictly by <code>patient_id</code>. All chronological visits for any single patient reside exclusively in either the training set or the holdout test set.</li>
-                    <li><strong>Strict Preprocessing Scoping:</strong> Scalers (<code>StandardScaler</code>) and imputers (<code>SimpleImputer</code>) are fitted purely on training folds within an atomic <code>Pipeline</code>, preventing data snooping into the test distribution.</li>
+                    <li><strong>Stratified Holdout Splitting:</strong> The 70,000 patient dataset is strictly split into 80% training (56,000) and 20% testing (14,000) with preserved class stratification.</li>
+                    <li><strong>Atomic Scikit-Learn Pipelines:</strong> Imputers (<code>SimpleImputer(strategy='median')</code>) and scalers (<code>StandardScaler</code>) are fitted exclusively on training folds, eliminating data snooping into the holdout distribution.</li>
                 </ul>
             </div>
             """,
@@ -1304,13 +1710,13 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
             <div class="viva-card">
                 <h4 style="margin: 0 0 8px 0; color: #34d399;">⚙️ Pipeline Specifications</h4>
                 <div style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.7;">
-                    <div>• <strong>Dataset Source:</strong> <code>{cfg['dataset']['name']}</code></div>
-                    <div>• <strong>Analysis Mode:</strong> <code>{cfg['dataset']['mode']}</code></div>
-                    <div>• <strong>Target Variable:</strong> <code>{cfg['dataset']['target_col']}</code> (Binary: 0=Safe, 1=Elevated Risk)</div>
-                    <div>• <strong>Selection Metric:</strong> <code>{cfg['training']['primary_metric'].upper()}</code> (Prioritizes Sensitivity/F1)</div>
+                    <div>• <strong>Dataset Source:</strong> <code>Cardiovascular Disease (cardio_train)</code></div>
+                    <div>• <strong>Cohort Size:</strong> <strong>70,000 real patient examinations</strong></div>
+                    <div>• <strong>Target Variable:</strong> <code>cardio</code> (0 = Healthy, 1 = Presence of CVD)</div>
+                    <div>• <strong>Primary Selection Metric:</strong> <code>F1-Score</code> & <code>ROC-AUC</code></div>
                     <div>• <strong>Champion Estimator:</strong> <strong style="color: #38bdf8;">{best_name}</strong></div>
-                    <div>• <strong>Engineered Feature Count:</strong> <strong>66 features</strong> (dynamics, slopes, variances, flags)</div>
-                    <div>• <strong>Missing Data Strategy:</strong> Median numeric imputation in <code>ColumnTransformer</code></div>
+                    <div>• <strong>Engineered Feature Count:</strong> <strong>18 features</strong> (hemodynamics, BMI, categories, interactions)</div>
+                    <div>• <strong>Missing Data Strategy:</strong> Median numeric & most-frequent categorical imputation</div>
                 </div>
             </div>
             """,
@@ -1319,52 +1725,17 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
         st.markdown(
             r"""
             <div class="viva-card">
-                <h4 style="margin: 0 0 8px 0; color: #34d399;">📐 Feature Engineering Dynamics</h4>
+                <h4 style="margin: 0 0 8px 0; color: #34d399;">📐 Cardiovascular Domain Engineering</h4>
                 <div style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.6;">
-                    For each vital V, the pipeline automatically computes:
-                    <br>• Change: &Delta; = V<sub>latest</sub> - V<sub>baseline</sub>
-                    <br>• % Change: %&Delta; = ((V<sub>latest</sub> - V<sub>baseline</sub>) / V<sub>baseline</sub>) &times; 100
-                    <br>• OLS Trend Slope: &beta; = &sum;((t<sub>i</sub> - t̄)(V<sub>i</sub> - V̄)) / &sum;(t<sub>i</sub> - t̄)<sup>2</sup>
-                    <br>• Summary statistics: &mu;(V), min(V), max(V), &sigma;(V)
+                    • <strong>Pulse Pressure:</strong> &Delta;P = SBP - DBP (independent predictor of arterial stiffness)
+                    <br>• <strong>Mean Arterial Pressure (MAP):</strong> MAP = DBP + ⅓(SBP - DBP)
+                    <br>• <strong>Body Mass Index:</strong> BMI = Weight<sub>kg</sub> / (Height<sub>m</sub>)<sup>2</sup>
+                    <br>• <strong>AHA Blood Pressure Stages:</strong> Normal, Elevated, Stage 1 HTN, Stage 2 HTN, Crisis
+                    <br>• <strong>Interaction:</strong> Age &times; (SBP / 100) capturing age-accelerated vascular pressure
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-    st.subheader("🎓 Viva Defense Q&A Quick Reference")
-
-    with st.expander("Q1: Why did KNN and Logistic Regression require StandardScaler while Trees did not?"):
-        st.markdown(
-            """
-            **Answer:**  
-            - **K-Nearest Neighbours (KNN)** calculates proximity using Euclidean metric distance:
-              $$d(p, q) = \\sqrt{\\sum_{i=1}^{n} (p_i - q_i)^2}$$
-              If unscaled, features with large numeric scales (e.g., Cholesterol $\\approx 220$ mg/dL) completely dwarf features with smaller ranges (e.g., Medication Count $\\approx 2$), rendering the smaller features inert.
-            - **Logistic Regression** applies $L_1$ or $L_2$ regularization penalties ($\\lambda \\sum w_i^2$). Regularization penalizes large weights equally; without scaling, features on smaller scales require larger coefficients to produce equivalent log-odds changes, causing them to be unfairly penalized.
-            - **Decision Trees and Random Forests** determine splits using orthogonal thresholds ($X_j \\le \\theta$) based on Gini impurity or entropy reduction. Monotonic linear transformations (scaling) preserve ordering and therefore have zero impact on tree splits.
-            """
-        )
-
-    with st.expander("Q2: Why optimize for F1-Score and Recall instead of simple Accuracy?"):
-        st.markdown(
-            """
-            **Answer:**  
-            In healthcare screening cohorts, adverse clinical deterioration is often imbalanced (e.g., 20–30% prevalence).
-            A naive baseline model that uniformly predicts *"Negative / Low Risk"* for every patient achieves a deceptive **70–80% Accuracy**, yet achieves **0.00 Recall**, missing 100% of sick patients who require life-saving intervention.
-            
-            By optimizing for **F1-Score** ($F_1 = 2 \\times \\frac{\\text{Precision} \\times \\text{Recall}}{\\text{Precision} + \\text{Recall}}$) and evaluating **ROC-AUC**, we directly penalize false negatives (missed high-risk patients) while maintaining clinical specificity.
-            """
-        )
-
-    with st.expander("Q3: How are patient visits aggregated without manual feature engineering by clinical users?"):
-        st.markdown(
-            """
-            **Answer:**  
-            The frontend takes raw timestamped CSV observations (`patient_id`, `date`, `systolic_bp`, `glucose`, etc.).
-            The backend `feature_engineering.py` module groups records by patient identifier, computes chronological trajectories (first visit vs latest visit, percentage changes, rate-of-change trend slopes, rolling window means, and physiological flags), and outputs a standardized 66-dimensional feature vector seamlessly formatted for scikit-learn inference.
-            """
         )
 
 
