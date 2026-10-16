@@ -1,5 +1,6 @@
 """Data loader, schema validator, and dataset summarization utilities."""
 
+import io
 from pathlib import Path
 from typing import Any, Dict, List
 import pandas as pd
@@ -182,3 +183,72 @@ def dataset_summary(df: pd.DataFrame, cfg: Dict[str, Any]) -> Dict[str, Any]:
         summary["class_balance"] = proportions
 
     return summary
+
+
+def run_eda(df: pd.DataFrame, verbose: bool = True) -> Dict[str, Any]:
+    """Perform foundational exploratory data analysis (EDA) checks on the DataFrame.
+
+    Covers the essential pandas exploratory methods and attributes:
+    1. df.shape: Dataset dimensions (rows, columns)
+    2. df.columns: Column headers
+    3. df.head(): First 5 rows of data
+    4. df.info(): Data types, non-null counts, and memory footprint
+    5. df.describe(): Descriptive summary statistics for numerical variables
+    6. df.isnull().sum(): Missing value count per column
+    7. df.duplicated().sum(): Total count of duplicate records
+    8. df.drop_duplicates(): Deduplicated DataFrame
+
+    Args:
+        df: Input pandas DataFrame.
+        verbose: Whether to print formatted EDA findings to stdout.
+
+    Returns:
+        Dict[str, Any]: Dictionary containing all inspection results and the deduplicated DataFrame.
+    """
+    shape = df.shape
+    columns = list(df.columns)
+    head_df = df.head()
+
+    buf = io.StringIO()
+    df.info(buf=buf)
+    info_str = buf.getvalue()
+
+    describe_df = df.describe()
+    isnull_sum = df.isnull().sum()
+    duplicated_sum = int(df.duplicated().sum())
+    df_dedup = df.drop_duplicates()
+
+    if verbose:
+        print("\n" + "=" * 65)
+        print("EXPLORATORY DATA ANALYSIS (EDA)")
+        print("=" * 65)
+        print("\n[1] df.shape:")
+        print(f"    Rows: {shape[0]}, Columns: {shape[1]}")
+        print("\n[2] df.columns:")
+        print(f"    {columns}")
+        print("\n[3] df.head():")
+        print(head_df.to_string())
+        print("\n[4] df.info():")
+        print(info_str.strip())
+        print("\n[5] df.describe():")
+        print(describe_df.to_string())
+        print("\n[6] df.isnull().sum():")
+        print(isnull_sum.to_string())
+        print("\n[7] df.duplicated().sum():")
+        print(f"    Total duplicate rows: {duplicated_sum}")
+        print("\n[8] df.drop_duplicates():")
+        print(f"    Shape before: {shape} | Shape after: {df_dedup.shape}")
+        print(f"    Duplicates removed: {len(df) - len(df_dedup)}")
+        print("=" * 65 + "\n")
+
+    return {
+        "shape": shape,
+        "columns": columns,
+        "head": head_df,
+        "info": info_str,
+        "describe": describe_df,
+        "isnull_sum": isnull_sum,
+        "duplicated_sum": duplicated_sum,
+        "df_dedup": df_dedup,
+    }
+

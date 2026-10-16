@@ -32,7 +32,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 
 from src.config import PROJECT_ROOT, load_config
-from src.data_loader import load_raw, validate_schema
+from src.data_loader import load_raw, run_eda, validate_schema
 from src.evaluation import (
     compute_metrics,
     plot_confusion_matrix,
@@ -95,6 +95,10 @@ def train_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
     schema_errs = validate_schema(raw_df, cfg, require_target=True)
     if schema_errs:
         raise ValueError(f"Dataset schema validation failed: {schema_errs}")
+
+    # Perform Exploratory Data Analysis (EDA)
+    logger.info("Performing Exploratory Data Analysis (EDA)...")
+    run_eda(raw_df, verbose=True)
 
     # 2. Clean data without leakage
     logger.info("Cleaning data and logging validation checks...")
