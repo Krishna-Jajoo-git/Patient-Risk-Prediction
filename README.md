@@ -155,10 +155,9 @@ patient-risk-prediction/
 
 ## 7. Deliverable B: Google Colab Notebook
 
-The self-contained notebook [`notebooks/Patient_Risk_Prediction_Colab.ipynb`](file:///c:/Users/Krishna/OneDrive/Desktop/ml%20project%202/notebooks/Patient_Risk_Prediction_Colab.ipynb) is organized into 18 faculty-friendly sections:
+The self-contained notebook [`notebooks/Patient_Risk_Prediction_Colab.ipynb`](notebooks/Patient_Risk_Prediction_Colab.ipynb) is organized into structured, step-by-step sections:
 - **Zero-Dependency Setup:** Defines all logic inline matching `src/` function signatures.
 - **Three Data Source Modes:** Switch between `"demo"`, Google Colab file `"upload"`, or Google `"drive"`.
-- **Viva Cheat-Sheet:** Includes direct Q&A for faculty defense on data leakage, scaling rationale, and metric choice.
 
 ---
 

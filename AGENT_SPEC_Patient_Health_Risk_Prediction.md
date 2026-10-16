@@ -15,7 +15,7 @@ outcome from structured, de-identified medical records, optionally using longitu
 - **Title:** Machine Learning-Based Patient Health Risk Prediction Using Longitudinal Medical Records
 - **Task:** Binary (default) or multiclass classification. The target comes from the dataset.
 - **Models to compare (exactly these four):** KNN, Decision Tree, Logistic Regression, Random Forest.
-- **Audience:** University faculty grading data cleaning, model comparison, UI/deployment,
+- **Audience:** Technical reviewers evaluating data cleaning, model comparison, UI/deployment,
   code quality, report quality and understanding of the ML pipeline.
 - **Language/stack:** Python 3.10+, pandas, numpy, scikit-learn, matplotlib, seaborn, plotly,
   streamlit, joblib, pyyaml, pytest.
@@ -49,7 +49,7 @@ This is an **academic project, not a diagnostic system**. Predictions are model 
 A runnable project with data pipeline, training code, saved model, tests, and a Streamlit app. Structure in Section 5.
 
 ### Deliverable B: Google Colab notebook (`Patient_Risk_Prediction_Colab.ipynb`)
-A **single self-contained notebook** containing the main ML logic, written so a student can run it top-to-bottom in Google Colab and **explain each step to faculty**. Specification in Section 9.
+A **single self-contained notebook** containing the main ML logic, written to run top-to-bottom in Google Colab with clear explanations for each step. Specification in Section 9.
 
 Both deliverables must use the **same logic and the same function names**, so what is shown in Colab matches the repository code.
 
@@ -301,7 +301,7 @@ All tests must pass with `pytest -q` from the project root, after `python -m src
   - `"upload"`: uses `google.colab.files.upload()`.
   - `"drive"`: mounts Google Drive and reads a path variable.
 - A **CONFIG cell** near the top (a Python dict mirroring `config.yaml`) where the student sets column names, target and valid ranges.
-- Every section starts with a **Markdown cell written for faculty**: what this step does, **why** it is needed, and the one-sentence takeaway. Use plain, simple English and short sentences. Add a "Say this in the viva" line where useful.
+- Every section starts with a **Markdown cell**: what this step does, **why** it is needed, and the one-sentence takeaway. Use plain, simple English and short sentences.
 - Every code cell has brief comments. Outputs (tables, plots) must be visible and readable.
 - Use `random_state=42`. Run the notebook end to end before finishing and make sure it has **no errors** (use `nbconvert --execute` or equivalent, then keep the executed outputs).
 
@@ -323,8 +323,7 @@ All tests must pass with `pytest -q` from the project root, after `python -m src
 14. **Save and reload.** Save the full pipeline with joblib, reload it, and verify identical predictions.
 15. **"What happens when a new patient is entered?"** End-to-end demo: take a small dated history for one new patient (typed inline as a DataFrame) → clean → engineer features → predict → show probability and a trend plot. This mirrors what the Streamlit app does.
 16. **Limitations and ethics.** Synthetic vs real data, bias, missingness, generalisation, no clinical validation, need for external validation.
-17. **Viva cheat-sheet.** Markdown Q&A covering: why this problem, why ML not rules, what the target is and how it was obtained, input features, why longitudinal info helps, missing values and outliers, why split, what is leakage, why KNN needs scaling, why each model, why these metrics, which model won and why, what happens on a new patient, how Streamlit uses the model, limitations, improvements.
-18. **Optional:** a cell that exports `best_model.joblib` and `metrics.json` via `files.download` so they can be dropped into the Streamlit project's `models/` folder.
+17. **Optional:** a cell that exports `best_model.joblib` and `metrics.json` via `files.download` so they can be dropped into the Streamlit project's `models/` folder.
 
 ---
 
@@ -414,7 +413,7 @@ Dataset → Validation & Cleaning → EDA → Feature Engineering → Train/Test
 
 **Colab notebook**
 - [ ] Runs top-to-bottom on a fresh Colab runtime with `DATA_SOURCE="demo"` and no errors.
-- [ ] Contains all sections 0 to 17 with faculty-friendly Markdown explanations.
+- [ ] Contains all sections with clear Markdown explanations.
 - [ ] Function names match `src/`.
 - [ ] Includes the BP worked example, the leakage explanation, the four-model comparison and the new-patient end-to-end demo.
 - [ ] Executed outputs are saved in the notebook.

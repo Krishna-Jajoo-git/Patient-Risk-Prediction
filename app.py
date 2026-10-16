@@ -379,8 +379,8 @@ CUSTOM_CSS = """
         font-weight: 700 !important;
     }
 
-    /* Viva Defense Accordions */
-    .viva-card {
+    /* Methodology Cards */
+    .methodology-card {
         background: rgba(15, 23, 42, 0.6);
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 10px;
@@ -690,7 +690,7 @@ def main():
     tab_pred, tab_perf, tab_about = st.tabs([
         "🩺 Patient Risk Assessment",
         "📊 Model Benchmarking & Performance",
-        "ℹ️ Clinical Methodology & Viva Notes",
+        "ℹ️ Clinical Methodology & Architecture",
     ])
 
     with tab_pred:
@@ -1304,10 +1304,10 @@ def render_performance_tab(
 
 
 # ==============================================================================
-# TAB 3: METHODOLOGY & VIVA NOTES
+# TAB 3: METHODOLOGY & ARCHITECTURE
 # ==============================================================================
 def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
-    """Documentation, Viva Defense Notes, and Academic Integrity."""
+    """System Architecture, Clinical Rationale, and Methodology."""
     st.subheader("System Architecture & Clinical Rationale")
 
     col1, col2 = st.columns(2)
@@ -1315,7 +1315,7 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
     with col1:
         st.markdown(
             """
-            <div class="viva-card">
+            <div class="methodology-card">
                 <h4 style="margin: 0 0 8px 0; color: #38bdf8;">📌 Why Machine Learning (Not Fixed Clinical Rules)?</h4>
                 <ul style="margin: 0; padding-left: 20px; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6;">
                     <li><strong>Multivariate Non-Linear Interactions:</strong> Clinical deterioration is rarely driven by a single isolated biomarker. Moderate systolic hypertension combined with rising fasting glucose confers multiplicative risk compared to either abnormality alone.</li>
@@ -1323,7 +1323,7 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
                 </ul>
             </div>
 
-            <div class="viva-card">
+            <div class="methodology-card">
                 <h4 style="margin: 0 0 8px 0; color: #38bdf8;">🛡️ Zero Patient Data Leakage Architecture</h4>
                 <ul style="margin: 0; padding-left: 20px; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6;">
                     <li><strong>Patient-Level Splitting (<code>GroupShuffleSplit</code>):</strong> Splitting is grouped strictly by <code>patient_id</code>. All chronological visits for any single patient reside exclusively in either the training set or the holdout test set.</li>
@@ -1338,7 +1338,7 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
         best_name = metadata.get("best_model_name", "Random Forest")
         st.markdown(
             f"""
-            <div class="viva-card">
+            <div class="methodology-card">
                 <h4 style="margin: 0 0 8px 0; color: #34d399;">⚙️ Pipeline Specifications</h4>
                 <div style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.7;">
                     <div>• <strong>Dataset Source:</strong> <code>{cfg['dataset']['name']}</code></div>
@@ -1355,7 +1355,7 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
         )
         st.markdown(
             r"""
-            <div class="viva-card">
+            <div class="methodology-card">
                 <h4 style="margin: 0 0 8px 0; color: #34d399;">📐 Feature Engineering Dynamics</h4>
                 <div style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.6;">
                     For each vital V, the pipeline automatically computes:
@@ -1367,41 +1367,6 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
             </div>
             """,
             unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-    st.subheader("🎓 Viva Defense Q&A Quick Reference")
-
-    with st.expander("Q1: Why did KNN and Logistic Regression require StandardScaler while Trees did not?"):
-        st.markdown(
-            """
-            **Answer:**  
-            - **K-Nearest Neighbours (KNN)** calculates proximity using Euclidean metric distance:
-              $$d(p, q) = \\sqrt{\\sum_{i=1}^{n} (p_i - q_i)^2}$$
-              If unscaled, features with large numeric scales (e.g., Cholesterol $\\approx 220$ mg/dL) completely dwarf features with smaller ranges (e.g., Medication Count $\\approx 2$), rendering the smaller features inert.
-            - **Logistic Regression** applies $L_1$ or $L_2$ regularization penalties ($\\lambda \\sum w_i^2$). Regularization penalizes large weights equally; without scaling, features on smaller scales require larger coefficients to produce equivalent log-odds changes, causing them to be unfairly penalized.
-            - **Decision Trees and Random Forests** determine splits using orthogonal thresholds ($X_j \\le \\theta$) based on Gini impurity or entropy reduction. Monotonic linear transformations (scaling) preserve ordering and therefore have zero impact on tree splits.
-            """
-        )
-
-    with st.expander("Q2: Why optimize for F1-Score and Recall instead of simple Accuracy?"):
-        st.markdown(
-            """
-            **Answer:**  
-            In healthcare screening cohorts, adverse clinical deterioration is often imbalanced (e.g., 20–30% prevalence).
-            A naive baseline model that uniformly predicts *"Negative / Low Risk"* for every patient achieves a deceptive **70–80% Accuracy**, yet achieves **0.00 Recall**, missing 100% of sick patients who require life-saving intervention.
-            
-            By optimizing for **F1-Score** ($F_1 = 2 \\times \\frac{\\text{Precision} \\times \\text{Recall}}{\\text{Precision} + \\text{Recall}}$) and evaluating **ROC-AUC**, we directly penalize false negatives (missed high-risk patients) while maintaining clinical specificity.
-            """
-        )
-
-    with st.expander("Q3: How are patient visits aggregated without manual feature engineering by clinical users?"):
-        st.markdown(
-            """
-            **Answer:**  
-            The frontend takes raw timestamped CSV observations (`patient_id`, `date`, `systolic_bp`, `glucose`, etc.).
-            The backend `feature_engineering.py` module groups records by patient identifier, computes chronological trajectories (first visit vs latest visit, percentage changes, rate-of-change trend slopes, rolling window means, and physiological flags), and outputs a standardized 66-dimensional feature vector seamlessly formatted for scikit-learn inference.
-            """
         )
 
 
