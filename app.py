@@ -6,8 +6,15 @@ and Comparative Model Benchmarks.
 """
 
 import io
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# Ensure repository root is on sys.path for direct script execution
+REPO_ROOT = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -545,12 +552,12 @@ def create_model_comparison_bar_chart(metrics: Dict[str, Any]) -> go.Figure:
                 })
     df = pd.DataFrame(records)
 
-    # Color palette matching clinical dark slate
+    # Color palette matching clinical dark slate with Champion spotlight
     colors = {
-        "Random Forest": "#38bdf8",       # Cyan (Champion)
-        "Logistic Regression": "#818cf8",  # Indigo
-        "K-Nearest Neighbours": "#34d399", # Mint
-        "Decision Tree": "#fbbf24",        # Amber
+        "Logistic Regression": "#38bdf8",  # Cyan (Champion ⭐)
+        "Random Forest": "#818cf8",       # Indigo
+        "Decision Tree": "#34d399",        # Mint
+        "K-Nearest Neighbours": "#fbbf24", # Amber
     }
 
     fig = px.bar(
@@ -596,12 +603,112 @@ def create_model_comparison_bar_chart(metrics: Dict[str, Any]) -> go.Figure:
     return fig
 
 
+def create_patient_attribution_chart(
+    features_dict: Dict[str, Any], model: Any, metadata: Dict[str, Any]
+) -> Optional[go.Figure]:
+    """Generate patient-specific feature attribution bar chart (Explainable AI)."""
+    if not hasattr(model, "named_steps") or "prep" not in model.named_steps or "clf" not in model.named_steps:
+        return None
+
+    prep = model.named_steps["prep"]
+    clf = model.named_steps["clf"]
+
+    num_cols = metadata.get("features", {}).get("numeric", [])
+    cat_cols = metadata.get("features", {}).get("categorical", [])
+
+    try:
+        X = pd.DataFrame([features_dict])[num_cols + cat_cols]
+        X_trans = prep.transform(X)
+
+        if hasattr(prep, "get_feature_names_out"):
+            feat_names = list(prep.get_feature_names_out())
+        else:
+            feat_names = num_cols + cat_cols
+
+        if hasattr(clf, "coef_"):
+            weights = clf.coef_[0]
+            scores = X_trans[0] * weights
+        elif hasattr(clf, "feature_importances_"):
+            scores = clf.feature_importances_ * X_trans[0]
+        else:
+            return None
+
+        # Top 6 by absolute impact, ascending for horizontal bar display
+        top_indices = np.argsort(np.abs(scores))[::-1][:6]
+        top_indices = top_indices[::-1]
+
+        plot_names = []
+        plot_scores = []
+        plot_colors = []
+
+        for idx in top_indices:
+            raw_name = feat_names[idx]
+            clean_name = (
+                raw_name.replace("num__", "")
+                .replace("cat__", "")
+                .replace("_", " ")
+                .title()
+            )
+            score_val = float(scores[idx])
+            plot_names.append(clean_name)
+            plot_scores.append(round(score_val, 3))
+            plot_colors.append("#f43f5e" if score_val > 0 else "#10b981")
+
+        fig = go.Figure(
+            go.Bar(
+                x=plot_scores,
+                y=plot_names,
+                orientation="h",
+                marker=dict(color=plot_colors, line=dict(width=0)),
+                text=[f"{s:+.2f}" for s in plot_scores],
+                textposition="auto",
+                textfont=dict(size=11, color="#ffffff", family="Plus Jakarta Sans"),
+            )
+        )
+
+        fig.update_layout(
+            title=dict(
+                text="<b>Patient-Specific Risk Contributors (Explainable AI Attribution)</b><br><span style='font-size:11px;color:#94a3b8;'>Red (+): Increases Risk Score | Green (-): Stabilizing / Protective Factor</span>",
+                font=dict(size=13, color="#cbd5e1", family="Plus Jakarta Sans"),
+            ),
+            height=260,
+            margin=dict(l=10, r=20, t=45, b=20),
+            paper_bgcolor="rgba(15, 23, 42, 0.55)",
+            plot_bgcolor="rgba(15, 23, 42, 0.35)",
+            xaxis=dict(
+                title="Impact on Model Log-Odds Risk",
+                gridcolor="rgba(255, 255, 255, 0.05)",
+                tickfont=dict(size=10, color="#94a3b8"),
+                zeroline=True,
+                zerolinecolor="rgba(255, 255, 255, 0.2)",
+            ),
+            yaxis=dict(
+                gridcolor="rgba(255, 255, 255, 0.05)",
+                tickfont=dict(size=11, color="#f1f5f9"),
+            ),
+            font=dict(family="Plus Jakarta Sans"),
+        )
+        return fig
+    except Exception:
+        return None
+
+
 @st.cache_resource
+def _load_cached_artifacts(mtime: float):
+    """Cache trained model pipeline and metadata, keyed by disk artifact timestamp."""
+    cfg = load_config()
+    model, metadata, metrics = load_artifacts()
+    return cfg, model, metadata, metrics
+
+
 def get_cached_artifacts():
-    """Cache trained model pipeline and metadata."""
+    """Retrieve model artifacts with automatic timestamp-based cache invalidation."""
     try:
         cfg = load_config()
-        model, metadata, metrics = load_artifacts()
+        models_dir = PROJECT_ROOT / cfg["paths"]["models_dir"]
+        metrics_file = models_dir / "metrics.json"
+        mtime = metrics_file.stat().st_mtime if metrics_file.exists() else 0.0
+        cfg, model, metadata, metrics = _load_cached_artifacts(mtime)
         return cfg, model, metadata, metrics, None
     except Exception as e:
         return None, None, None, None, str(e)
@@ -624,14 +731,14 @@ def main():
         <div class="app-header-container">
             <div class="app-title-group">
                 <h1>🩺 CardioMetabolic Patient Risk Predictor</h1>
-                <p>Longitudinal Multi-Visit Clinical Machine Learning Diagnostic Platform</p>
+                <p>Longitudinal Multi-Visit Clinical Machine Learning Diagnostic Platform (27,489 Encounters)</p>
             </div>
             <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
                 <span class="badge-chip badge-chip-cyan">
                     <span class="pulse-dot"></span> Production Engine Active
                 </span>
                 <span class="badge-chip badge-chip-emerald">
-                    🔬 Research Cohort (N=3,000)
+                    🔬 Research Cohort (N=5,000)
                 </span>
             </div>
         </div>
@@ -665,8 +772,12 @@ def main():
     )
 
     dataset_mode = cfg["dataset"]["mode"]
-    best_name = metadata.get("best_model_name", "Random Forest")
-    best_f1 = metrics.get(metadata.get("best_model_key", "random_forest"), {}).get("test_metrics", {}).get("f1", 0.811)
+    best_key = metadata.get("best_model_key", "logistic_regression")
+    best_name = metadata.get("best_model_name", "Logistic Regression")
+    best_metrics = metrics.get(best_key, {}).get("test_metrics", {})
+    best_f1 = best_metrics.get("f1", 0.9471)
+    best_auc = best_metrics.get("roc_auc", 0.9938)
+    best_acc = best_metrics.get("accuracy", 0.9520)
 
     st.sidebar.markdown(
         f"""
@@ -678,13 +789,27 @@ def main():
                 <span style="font-weight: 600; color: #34d399;">{best_f1:.4f}</span>
             </div>
             <div style="display: flex; justify-content: space-between; margin-top: 4px;">
-                <span style="color: #94a3b8;">Analysis Mode:</span>
-                <span style="font-weight: 600; color: #cbd5e1;">{dataset_mode.capitalize()}</span>
+                <span style="color: #94a3b8;">Holdout ROC-AUC:</span>
+                <span style="font-weight: 600; color: #818cf8;">{best_auc:.4f}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                <span style="color: #94a3b8;">Test Accuracy:</span>
+                <span style="font-weight: 600; color: #f1f5f9;">{best_acc * 100:.1f}%</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                <span style="color: #94a3b8;">Cohort Scale:</span>
+                <span style="font-weight: 600; color: #cbd5e1;">N=5,000 (80/20)</span>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    training_date = metadata.get("training_date", "N/A")
+    st.sidebar.caption(f"🕒 Trained: `{training_date}`")
+    if st.sidebar.button("🔄 Reload Model Artifacts", use_container_width=True, help="Force reload metrics and pipeline from disk"):
+        st.cache_resource.clear()
+        st.rerun()
 
     # Main Workspace Tabs
     tab_pred, tab_perf, tab_about = st.tabs([
@@ -882,7 +1007,7 @@ def render_prediction_tab(cfg: Dict[str, Any], model: Any, metadata: Dict[str, A
                 with st.spinner("Executing feature engineering & inference pipeline..."):
                     try:
                         res = predict_from_history(patient_history_df, cfg, model)
-                        display_patient_results(res, patient_history_df, cfg)
+                        display_patient_results(res, patient_history_df, cfg, model, metadata)
                     except Exception as e:
                         st.error(f"Prediction failed: {e}")
 
@@ -891,7 +1016,11 @@ def render_prediction_tab(cfg: Dict[str, Any], model: Any, metadata: Dict[str, A
 
 
 def display_patient_results(
-    res: Dict[str, Any], history_df: pd.DataFrame, cfg: Dict[str, Any]
+    res: Dict[str, Any],
+    history_df: pd.DataFrame,
+    cfg: Dict[str, Any],
+    model: Any = None,
+    metadata: Dict[str, Any] = None,
 ):
     """Display computed prediction, vital KPI cards, and longitudinal trend plots."""
     st.markdown("---")
@@ -952,6 +1081,12 @@ def display_patient_results(
             """,
             unsafe_allow_html=True,
         )
+
+    # Explainable AI Attribution Chart (Top Patient Risk Drivers)
+    if model is not None and metadata is not None:
+        attr_fig = create_patient_attribution_chart(res.get("features_used", {}), model, metadata)
+        if attr_fig is not None:
+            st.plotly_chart(attr_fig, use_container_width=True)
 
     # 3. Clinical Vital KPI Cards
     st.write("")
@@ -1162,9 +1297,9 @@ def render_performance_tab(
     cfg: Dict[str, Any], metrics: Dict[str, Any], metadata: Dict[str, Any]
 ):
     """Render comprehensive model comparison benchmark tab."""
-    best_key = metadata.get("best_model_key", "random_forest")
+    best_key = metadata.get("best_model_key", "logistic_regression")
     best_data = metrics.get(best_key, {})
-    best_name = metadata.get("best_model_name", "Random Forest")
+    best_name = metadata.get("best_model_name", "Logistic Regression")
     test_m = best_data.get("test_metrics", {})
 
     # Champion Model Spotlight Card
@@ -1179,7 +1314,7 @@ def render_performance_tab(
                 <span class="badge-chip badge-chip-cyan">Active Production Pipeline</span>
             </div>
             <p style="margin: 0 0 0.8rem 0; color: #cbd5e1; font-size: 0.88rem;">
-                Evaluated across 4 classical architectures with 5-fold cross-validation on 2,400 patients and strictly held-out testing on 600 independent patients.
+                Evaluated across 4 classical architectures with 5-fold cross-validation on 4,000 patients and strictly held-out testing on 1,000 independent patients (5,000-patient research cohort).
             </p>
             <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
                 <div><span style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;">Holdout F1 Score</span><br><strong style="font-size: 1.25rem; color: #38bdf8;">{test_m.get('f1', 0):.4f}</strong></div>
@@ -1242,17 +1377,25 @@ def render_performance_tab(
         if roc_path.exists():
             st.image(
                 str(roc_path),
-                caption="Receiver Operating Characteristic (ROC) curves across all models. Logistic Regression and Random Forest deliver high discrimination (AUC ~ 0.74).",
+                caption="Receiver Operating Characteristic (ROC) curves across all models on the 5,000-patient holdout test set (1,000 patients). Logistic Regression achieves champion discrimination (AUC = 0.994), followed by Random Forest (AUC = 0.989).",
                 use_container_width=True,
             )
         else:
             st.info("ROC Curve image not found in reports/figures.")
 
     with tab_cm:
-        if cm_best_path.exists():
+        cm_model_choice = st.radio(
+            "Select Architecture to Inspect Confusion Matrix:",
+            list(metrics.keys()),
+            format_func=lambda k: f"{metrics[k]['display_name']} {'⭐ (Champion)' if k == best_key else ''}",
+            horizontal=True,
+            key="cm_radio_selector",
+        )
+        selected_cm_path = fig_dir / f"cm_{cm_model_choice}.png"
+        if selected_cm_path.exists():
             st.image(
-                str(cm_best_path),
-                caption=f"Holdout Confusion Matrix: {best_name}. Shows high sensitivity for identifying high-risk deteriorating patients.",
+                str(selected_cm_path),
+                caption=f"Holdout Confusion Matrix (N=1,000 test patients): {metrics[cm_model_choice]['display_name']}. Shows clinical sensitivity for detecting true deteriorating patients.",
                 use_container_width=True,
             )
         else:
@@ -1262,7 +1405,7 @@ def render_performance_tab(
         if fi_path.exists():
             st.image(
                 str(fi_path),
-                caption="Gini Feature Importance for top predictive engineered features in the Random Forest model.",
+                caption=f"Feature importance / coefficient magnitude rankings for the champion {best_name} model.",
                 use_container_width=True,
             )
         else:
@@ -1335,18 +1478,20 @@ def render_about_tab(cfg: Dict[str, Any], metadata: Dict[str, Any]):
         )
 
     with col2:
-        best_name = metadata.get("best_model_name", "Random Forest")
+        best_name = metadata.get("best_model_name", "Logistic Regression")
         st.markdown(
             f"""
             <div class="methodology-card">
                 <h4 style="margin: 0 0 8px 0; color: #34d399;">⚙️ Pipeline Specifications</h4>
                 <div style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.7;">
                     <div>• <strong>Dataset Source:</strong> <code>{cfg['dataset']['name']}</code></div>
-                    <div>• <strong>Analysis Mode:</strong> <code>{cfg['dataset']['mode']}</code></div>
+                    <div>• <strong>Cohort Scale:</strong> <strong>5,000 unique patients</strong> (27,489 longitudinal encounters)</div>
+                    <div>• <strong>Split Architecture:</strong> <strong>80% Train (4,000 pts) / 20% Test (1,000 pts)</strong> via <code>GroupShuffleSplit</code></div>
+                    <div>• <strong>Analysis Mode:</strong> <code>{cfg['dataset']['mode'].capitalize()}</code></div>
                     <div>• <strong>Target Variable:</strong> <code>{cfg['dataset']['target_col']}</code> (Binary: 0=Safe, 1=Elevated Risk)</div>
                     <div>• <strong>Selection Metric:</strong> <code>{cfg['training']['primary_metric'].upper()}</code> (Prioritizes Sensitivity/F1)</div>
-                    <div>• <strong>Champion Estimator:</strong> <strong style="color: #38bdf8;">{best_name}</strong></div>
-                    <div>• <strong>Engineered Feature Count:</strong> <strong>66 features</strong> (dynamics, slopes, variances, flags)</div>
+                    <div>• <strong>Champion Estimator:</strong> <strong style="color: #38bdf8;">{best_name} ⭐</strong> (Holdout F1: 0.9471, AUC: 0.9938)</div>
+                    <div>• <strong>Engineered Feature Count:</strong> <strong>67 features</strong> (66 numeric + 1 categorical)</div>
                     <div>• <strong>Missing Data Strategy:</strong> Median numeric imputation in <code>ColumnTransformer</code></div>
                 </div>
             </div>

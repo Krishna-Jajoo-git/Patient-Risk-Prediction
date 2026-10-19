@@ -1,23 +1,23 @@
 {
-  "initial_rows": 16472,
+  "initial_rows": 27489,
   "initial_missing": {
     "patient_id": 0,
     "date": 0,
-    "age": 643,
+    "age": 0,
     "gender": 0,
-    "bmi": 682,
-    "systolic_bp": 702,
-    "glucose": 650,
-    "cholesterol": 660,
-    "medication_count": 700,
+    "bmi": 1365,
+    "systolic_bp": 1369,
+    "glucose": 1384,
+    "cholesterol": 1451,
+    "medication_count": 1382,
     "outcome": 0
   },
-  "duplicates_removed": 32,
+  "duplicates_removed": 8,
   "impossible_values_nulled": {
     "age": 0,
-    "bmi": 33,
-    "systolic_bp": 46,
-    "glucose": 0,
+    "bmi": 4,
+    "systolic_bp": 4,
+    "glucose": 4,
     "cholesterol": 0,
     "medication_count": 0
   },
@@ -25,57 +25,57 @@
     "age": {
       "count": 0,
       "bounds": [
-        -3.0,
-        109.0
+        -6.5,
+        117.5
       ]
     },
     "bmi": {
-      "count": 0,
+      "count": 67,
       "bounds": [
-        6.9,
-        50.9
+        13.7,
+        41.7
       ]
     },
     "systolic_bp": {
-      "count": 0,
+      "count": 194,
       "bounds": [
-        51.0,
-        207.8
+        85.95,
+        173.55
       ]
     },
     "glucose": {
-      "count": 0,
+      "count": 109,
       "bounds": [
-        -0.15,
-        267.45
+        35.55,
+        178.35
       ]
     },
     "cholesterol": {
-      "count": 0,
+      "count": 138,
       "bounds": [
-        39.95,
-        358.75
+        96.95,
+        293.35
       ]
     },
     "medication_count": {
-      "count": 78,
+      "count": 480,
       "bounds": [
         -2.0,
         6.0
       ]
     }
   },
-  "final_rows": 16440,
+  "final_rows": 27481,
   "final_missing": {
     "patient_id": 0,
     "date": 0,
-    "age": 640,
+    "age": 0,
     "gender": 0,
-    "bmi": 715,
-    "systolic_bp": 745,
-    "glucose": 649,
-    "cholesterol": 660,
-    "medication_count": 700,
+    "bmi": 1369,
+    "systolic_bp": 1373,
+    "glucose": 1388,
+    "cholesterol": 1450,
+    "medication_count": 1381,
     "outcome": 0
   }
 }

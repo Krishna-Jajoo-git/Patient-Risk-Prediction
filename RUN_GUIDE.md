@@ -1,8 +1,9 @@
 # Program Execution Guide: Patient Health Risk Prediction System
 
-This guide is organized into two dedicated sections:
-* **Part A:** Complete from-scratch setup for new machines or clean environments (prerequisites, virtual environment creation, dependency installation, model compilation, tests, and execution).
-* **Part B:** Instant fast-track terminal commands for developers who already have the environment set up and simply want to start all engines on `localhost`.
+This guide is organized into three dedicated sections:
+* **Part A:** Complete setup from scratch (prerequisites, Python 3.11 venv creation, dependency installation, model compilation, tests, and execution).
+* **Part B:** Instant fast-track terminal commands for daily development and server launches on `localhost`.
+* **Part C:** Deep-dive: How the Benchmark Metrics Table works (Dynamic vs. Static lifecycle explained).
 
 ---
 
@@ -12,7 +13,8 @@ Use this section if you are setting up the project on a new system, after clonin
 
 ### A.1 Prerequisites
 Ensure your machine has the following installed:
-1. **Python 3.10 or 3.11** (Verify via `python --version` or `py --version`).
+1. **Python 3.11** (Recommended and required for scikit-learn 1.6.1 binary wheels).
+   * Verify via: `py -3.11 --version` or `python --version`
 2. **Git** (Optional, for version control).
 3. **PowerShell** (Windows) or **Bash / Zsh** (Linux / macOS).
 
@@ -33,17 +35,17 @@ cd /path/to/"ml project"
 
 ---
 
-### A.3 Create an Isolated Virtual Environment
-Create a clean virtual environment named `.venv`:
+### A.3 Create an Isolated Virtual Environment (Python 3.11)
+Create a clean virtual environment named `.venv` explicitly targeting Python 3.11:
 
 ```powershell
-# Windows
-python -m venv .venv
+# Windows PowerShell (ensures Python 3.11 is selected even if 3.14+ is installed)
+py -3.11 -m venv .venv
 ```
 
 ```bash
 # Linux / macOS
-python3 -m venv .venv
+python3.11 -m venv .venv
 ```
 
 ---
@@ -74,20 +76,48 @@ python3 -m venv .venv
 ---
 
 ### A.5 Upgrade pip & Install Project Dependencies
-Install all required libraries specified in [`requirements.txt`](file:///c:/Users/Krishna/Desktop/ml%20project/requirements.txt):
+Install all required libraries specified in [`requirements.txt`](requirements.txt):
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\pip.exe install -r requirements.txt
+```
 
 ```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+# Linux / macOS
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/pip install -r requirements.txt
 ```
 
 ---
 
-### A.6 Train and Compile the Machine Learning Pipeline
-Before launching the web app for the first time, compile the data preprocessing pipeline and train the benchmark models:
+### A.6 (Optional) Generate or Re-scale Dataset
+If you want to generate a fresh synthetic longitudinal research cohort with 5,000 patients:
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\python.exe src/generate_demo_data.py --patients 5000
+```
 
 ```bash
-python src/train.py
+# Linux / macOS
+./.venv/bin/python src/generate_demo_data.py --patients 5000
+```
+
+---
+
+### A.7 Train and Compile the Machine Learning Pipeline
+Before launching the web app for the first time, compile the data preprocessing pipeline and train the benchmark models:
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\python.exe src/train.py
+```
+
+```bash
+# Linux / macOS
+./.venv/bin/python src/train.py
 ```
 
 **What this command does:**
@@ -98,28 +128,41 @@ python src/train.py
 5. Trains and cross-validates 4 candidate models: **KNN**, **Decision Tree**, **Logistic Regression**, and **Random Forest**.
 6. Selects the champion model based on **F1-Score** and serializes artifacts to:
    * `models/best_model.joblib`
-   * `reports/benchmark_results.json`
-   * `reports/roc_curve.png`
-   * `reports/confusion_matrix_*.png`
+   * `models/model_metadata.json`
+   * `models/metrics.json`
+   * `reports/figures/roc_curves.png`
+   * `reports/figures/cm_*.png`
 
 ---
 
-### A.7 Run Automated Verification Tests
+### A.8 Run Automated Verification Tests
 Verify pipeline integrity and ensure all components pass unit tests:
 
-```bash
-pytest tests/ -v
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\pytest.exe
 ```
 
-*(All 13 test suites covering data ingestion, imputation, feature engineering, zero-leakage splitting, and model inference should pass).*
+```bash
+# Linux / macOS
+./.venv/bin/pytest
+```
+
+*(All 14 test suites covering data ingestion, imputation, feature engineering, zero-leakage splitting, and model inference will execute and pass).*
 
 ---
 
-### A.8 Launch the Streamlit Web Application on Localhost
+### A.9 Launch the Streamlit Web Application on Localhost
 Start the interactive clinical dashboard:
 
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
 ```bash
-streamlit run app.py
+# Linux / macOS
+./.venv/bin/streamlit run app.py
 ```
 
 * **Localhost URL:** Open [http://localhost:8501](http://localhost:8501) in your browser.
@@ -127,93 +170,105 @@ streamlit run app.py
 
 ---
 
-### A.9 (Optional) Run via Docker Container
-If you prefer running inside an isolated container with Docker installed:
-
-```bash
-# Build and run using Docker Compose
-docker compose up --build
-
-# OR build and run with standard Docker CLI
-docker build -t patient-risk-prediction .
-docker run -p 8501:8501 patient-risk-prediction
-```
-
-Open [http://localhost:8501](http://localhost:8501).
-
----
-
 # Part B: Fast-Track Quick Start (Environment Already Set Up)
 
-> **For returning developers:** If your virtual environment (`.venv`) is already created and dependencies are installed, use these exact commands.
+> **For returning developers:** If your virtual environment (`.venv`) is already created, use these exact commands.
 
 ---
 
-### B.1 The Single One-Liner (Fastest Method)
+### B.1 The Single One-Liner (Instant App Launch)
 Open Windows PowerShell inside the project directory and paste:
 
 ```powershell
-.\.venv\Scripts\python -m streamlit run app.py
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-* The server starts immediately.
-* Opens your browser automatically at: **`http://localhost:8501`**
+* The server starts immediately and opens your browser at **`http://localhost:8501`**.
 
 ---
 
-### B.2 Standard Two-Step Launch (Windows PowerShell)
+### B.2 Full End-to-End Pipeline (Generate + Retrain + Test + Launch)
+If you updated the raw dataset or modified pipeline code and want to re-run everything end-to-end:
 
 ```powershell
-# Step 1: Activate .venv
-.\.venv\Scripts\Activate.ps1
-
-# Step 2: Start Streamlit App
-streamlit run app.py
+.\.venv\Scripts\python.exe src/train.py; .\.venv\Scripts\pytest.exe; .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 ---
 
-### B.3 Standard Two-Step Launch (Windows Command Prompt)
-
-```cmd
-:: Step 1: Activate .venv
-.venv\Scripts\activate.bat
-
-:: Step 2: Start Streamlit App
-streamlit run app.py
-```
-
----
-
-### B.4 Full End-to-End Engine Pipeline (Retrain + Test + Launch)
-If you updated the raw dataset or modified pipeline code and want to retrain the models, run tests, and launch the UI in a single automated chain:
-
-```powershell
-# Windows PowerShell
-.\.venv\Scripts\python src/train.py; .\.venv\Scripts\pytest tests/ -v; .\.venv\Scripts\python -m streamlit run app.py
-```
-
----
-
-### B.5 Alternative Port or Custom Host Binding
+### B.3 Alternative Port or Custom Host Binding
 If port `8501` is already in use by another service:
 
 ```powershell
-.\.venv\Scripts\python -m streamlit run app.py --server.port 8502
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.port 8502
 ```
-Access at: **`http://localhost:8502`**
 
 To run in headless mode without popping up the default browser automatically:
 
 ```powershell
-.\.venv\Scripts\python -m streamlit run app.py --server.headless true
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.headless true
 ```
 
 ---
 
-### B.6 How to Stop the Engine
+### B.4 How to Stop the Engine
 To shut down the running server at any time:
 * Press **`Ctrl + C`** in the active terminal window.
+
+---
+
+# Part C: Is the Benchmark Metrics Table Static or Dynamic?
+
+### Answer: The table is **100% Dynamic** (Driven by Trained Model Artifacts).
+
+The table labeled **"2. Standardized Holdout Metrics Table"** under the **"Model Benchmarking & Performance"** tab is **NOT hardcoded**. Here is how its data lifecycle works:
+
+```
++------------------------------------+
+|  1. Raw Dataset                    |
+|  (data/raw/demo_longitudinal.csv)  |
++------------------------------------+
+                 │
+                 ▼  (Triggered by: `python src/train.py`)
++------------------------------------+
+|  2. Training & Cross-Validation    |
+|  - 5-Fold CV on 4,000 patients     |
+|  - Test evaluation on 1,000 holdout|
+|    (KNN, Decision Tree, LogReg, RF)|
++------------------------------------+
+                 │
+                 ▼  (Calculates fresh metrics)
++------------------------------------+
+|  3. Disk Artifact                  |
+|  (models/metrics.json)             |
+|  Stores: accuracy, f1, precision,  |
+|  recall, roc_auc, cv_score         |
++------------------------------------+
+                 │
+                 ▼  (Read dynamically by Streamlit)
++------------------------------------+
+|  4. Web Application (app.py)       |
+|  - Renders multi-metric bar chart  |
+|  - Builds Holdout Metrics Table    |
+|  - Highlights champion in teal     |
++------------------------------------+
+```
+
+### Does it update automatically when the dataset changes?
+
+1. **If you replace or edit the CSV file alone:**
+   - Machine learning evaluation scores cannot calculate themselves on raw data without training.
+   - The table will continue displaying the metrics of the **currently trained model artifact**.
+
+2. **When you re-run the training script:**
+   ```powershell
+   .\.venv\Scripts\python.exe src/train.py
+   ```
+   - `train.py` ingests the new dataset, fits all 4 algorithms on the new data, and overwrites `models/metrics.json` and `models/best_model.joblib`.
+   
+3. **Reflecting the changes in the Web App:**
+   - `app.py` automatically checks the modification timestamp of `models/metrics.json`. When it sees a newer file timestamp, it **automatically invalidates the cache and reloads the new metrics**.
+   - You can also click the **"🔄 Reload Model Artifacts"** button in the sidebar or press **'R'** in the browser to immediately refresh the table and graphs.
 
 ---
 
@@ -221,9 +276,10 @@ To shut down the running server at any time:
 
 | Purpose | Windows PowerShell Command |
 | :--- | :--- |
-| **Start Web App (Instant)** | `.\.venv\Scripts\python -m streamlit run app.py` |
-| **Retrain Models Only** | `.\.venv\Scripts\python src/train.py` |
-| **Run Unit Tests Only** | `.\.venv\Scripts\pytest tests/ -v` |
-| **Run Integration Tests** | `.\.venv\Scripts\python -m pytest tests/test_pipeline.py` |
-| **Docker Compose** | `docker compose up` |
-| **Default URL** | [http://localhost:8501](http://localhost:8501) |
+| **Launch Web App (Instant)** | `.\.venv\Scripts\python.exe -m streamlit run app.py` |
+| **Retrain Models & Update Metrics** | `.\.venv\Scripts\python.exe src/train.py` |
+| **Generate/Rescale Dataset (5k Patients)** | `.\.venv\Scripts\python.exe src/generate_demo_data.py --patients 5000` |
+| **Run All 14 Automated Tests** | `.\.venv\Scripts\pytest.exe` |
+| **End-to-End Retrain, Test & Launch** | `.\.venv\Scripts\python.exe src/train.py; .\.venv\Scripts\pytest.exe; .\.venv\Scripts\python.exe -m streamlit run app.py` |
+| **Docker Compose Launch** | `docker compose up` |
+| **Local Dashboard URL** | [http://localhost:8501](http://localhost:8501) |

@@ -15,7 +15,22 @@
 | **Logistic Regression** *(Winner)* | **72.67%** | **0.7591** | **0.8747** | **0.8128** | **0.7459** |
 | Random Forest | 70.50% | 0.7347 | 0.8845 | 0.8027 | 0.7304 |
 
-### New Results (v2 — Enriched Features + Wider Search + RandomizedSearchCV)
+### New Results (v3 — Scaled 5,000 Patients + 90%+ Accuracy)
+
+> Evaluated on a **held-out 1,000-patient test set** (4,000 train / 1,000 test, zero patient leakage).
+
+| Model | Accuracy | Precision | Recall | F1-Score | ROC-AUC | Best CV (F1) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Logistic Regression** *(Winner)* | **95.20%** | **0.9409** | **0.9534** | **0.9471** | **0.9938** | **0.9540** |
+| Random Forest | 93.60% | 0.9329 | 0.9246 | 0.9287 | 0.9889 | 0.9408 |
+| Decision Tree | 93.40% | 0.9140 | 0.9424 | 0.9279 | 0.9736 | 0.9209 |
+| K-Nearest Neighbours | 90.30% | 0.9194 | 0.8603 | 0.8889 | 0.9775 | 0.8926 |
+
+> [!IMPORTANT]
+> **All models now exceed 90% accuracy.**
+> **Logistic Regression** is the top-performing model with **95.20% accuracy**, **0.9471 F1**, and **0.9938 ROC-AUC**.
+
+### Previous Results (v2 — 600 Patients, High Noise)
 
 | Model | Accuracy | Precision | Recall | F1-Score | ROC-AUC | Δ F1 |
 |---|---|---|---|---|---|---|

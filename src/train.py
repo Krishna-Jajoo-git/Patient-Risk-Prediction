@@ -11,9 +11,15 @@ Improvements over v1:
 import datetime
 import json
 import logging
+import sys
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List
+
+# Ensure repository root is on sys.path for direct script execution
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import joblib
 import numpy as np

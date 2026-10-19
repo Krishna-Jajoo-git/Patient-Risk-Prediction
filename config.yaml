@@ -1,6 +1,7 @@
 dataset:
   name: "demo_longitudinal (SYNTHETIC)"
   path: "data/raw/demo_longitudinal.csv"
+  n_patients: 5000
   mode: "longitudinal"            # longitudinal | single_record
   patient_id_col: "patient_id"    # longitudinal only
   date_col: "date"                # longitudinal only

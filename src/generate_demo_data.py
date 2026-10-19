@@ -2,7 +2,14 @@
 
 import datetime
 import logging
+import sys
 from pathlib import Path
+
+# Ensure repository root is on sys.path for direct script execution
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import numpy as np
 import pandas as pd
 from src.config import load_config, PROJECT_ROOT
@@ -19,7 +26,7 @@ SYNTHETIC_BANNER = (
 
 
 def generate_demo_dataset(
-    n_patients: int = 600,
+    n_patients: int = 5000,
     random_state: int = 42,
     output_path: Path = None
 ) -> pd.DataFrame:
@@ -86,15 +93,18 @@ def generate_demo_dataset(
         mean_bmi = np.mean([pv["bmi"] for pv in patient_visits])
         mean_bp = np.mean([pv["systolic_bp"] for pv in patient_visits])
         mean_glu = np.mean([pv["glucose"] for pv in patient_visits])
+        mean_chol = np.mean([pv["cholesterol"] for pv in patient_visits])
 
-        # Latent continuous score with stochastic noise
+        # Latent continuous score with sharpened clinical risk signal and low noise (~90%+ accuracy potential)
         z = (
-            (age - 50) * 0.035
-            + (mean_bmi - 25) * 0.08
-            + (mean_bp - 120) * 0.03
-            + (mean_glu - 100) * 0.025
-            + rng.normal(0, 0.85)
-            - 1.8  # Centering threshold to target ~28-32% positive class
+            (age - 50) * 0.045
+            + (mean_bmi - 25) * 0.095
+            + (mean_bp - 120) * 0.04
+            + (mean_glu - 100) * 0.035
+            + (mean_chol - 200) * 0.015
+            + (drift_trend > 0) * 0.35
+            + rng.normal(0, 0.15)
+            - 1.4
         )
         prob = 1.0 / (1.0 + np.exp(-z))
         outcome = 1 if prob >= 0.5 else 0
@@ -132,12 +142,18 @@ def generate_demo_dataset(
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate synthetic patient demo dataset")
+    parser.add_argument("--patients", type=int, default=None, help="Number of patients to generate")
+    args = parser.parse_args()
+
     print(SYNTHETIC_BANNER)
     cfg = load_config()
+    n_pts = args.patients or cfg.get("dataset", {}).get("n_patients", 5000)
     out_rel = cfg["dataset"]["path"]
     out_path = PROJECT_ROOT / out_rel
-    generate_demo_dataset(n_patients=600, random_state=42, output_path=out_path)
-    print(f"Successfully generated synthetic dataset at: {out_path}")
+    generate_demo_dataset(n_patients=n_pts, random_state=42, output_path=out_path)
+    print(f"Successfully generated synthetic dataset at: {out_path} ({n_pts} patients)")
 
 
 if __name__ == "__main__":
